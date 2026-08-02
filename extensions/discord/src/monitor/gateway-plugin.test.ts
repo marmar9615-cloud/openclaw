@@ -1,6 +1,8 @@
 // Discord tests cover gateway plugin plugin behavior.
 import { EventEmitter } from "node:events";
-import { beforeAll, describe, expect, it, vi } from "vitest";
+import { createServer } from "node:http";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { initializeDiscordProviderEndpointForTest } from "../provider-endpoint.test-support.js";
 import { DISCORD_GATEWAY_TRANSPORT_ACTIVITY_EVENT } from "./gateway-handle.js";
 import {
   fetchDiscordGatewayInfoWithTimeout,
@@ -79,7 +81,8 @@ describe("createDiscordGatewayPlugin", () => {
   let createDiscordGatewayPlugin: typeof import("./gateway-plugin.js").createDiscordGatewayPlugin;
   let resolveDiscordGatewayIntents: typeof import("./gateway-plugin.js").resolveDiscordGatewayIntents;
 
-  beforeAll(async () => {
+  beforeEach(async () => {
+    vi.resetModules();
     ({ createDiscordGatewayPlugin, resolveDiscordGatewayIntents } =
       await import("./gateway-plugin.js"));
   });
@@ -256,6 +259,81 @@ describe("createDiscordGatewayPlugin", () => {
         GatewayIntents.DirectMessageReactions,
       reconnect: { maxAttempts: 50 },
     });
+  });
+
+  it("uses loopback WS without an HTTPS agent and enforces the configured origin", async () => {
+    await initializeDiscordProviderEndpointForTest({
+      restApiBaseUrl: "http://127.0.0.1:43123/rest/v10",
+      gatewayBotUrl: "http://127.0.0.1:43123/gateway-metadata",
+      gatewayOrigin: "ws://127.0.0.1:43124",
+    });
+    const socket = new EventEmitter() as EventEmitter & { binaryType?: string };
+    const constructorSpy = vi.fn();
+    const plugin = createPlugin({
+      webSocketCtor: function WebSocketCtor(url: unknown, options: unknown) {
+        constructorSpy(url, options);
+        return socket;
+      } as unknown as NonNullable<
+        Parameters<typeof createDiscordGatewayPlugin>[0]["testing"]
+      >["webSocketCtor"],
+    });
+
+    (plugin as unknown as { createWebSocket: (url: string) => typeof socket }).createWebSocket(
+      "ws://127.0.0.1:43124/socket?v=10&encoding=json",
+    );
+
+    expect(constructorSpy).toHaveBeenCalledWith(
+      "ws://127.0.0.1:43124/socket?v=10&encoding=json",
+      expect.not.objectContaining({ agent: expect.anything() }),
+    );
+    expect(() =>
+      (plugin as unknown as { createWebSocket: (url: string) => typeof socket }).createWebSocket(
+        "ws://127.0.0.1:43125/socket?v=10&encoding=json",
+      ),
+    ).toThrow(/outside the configured WebSocket origin/);
+  });
+
+  it("does not fall back to live Discord when custom Gateway metadata fails", async () => {
+    const server = createServer((_request, response) => {
+      response.writeHead(503, { "content-type": "text/plain" });
+      response.end("provider unavailable");
+    });
+    const port = await new Promise<number>((resolve, reject) => {
+      server.once("error", reject);
+      server.listen(0, "127.0.0.1", () => {
+        server.off("error", reject);
+        const address = server.address();
+        if (!address || typeof address === "string") {
+          reject(new Error("expected loopback TCP address"));
+          return;
+        }
+        resolve(address.port);
+      });
+    });
+    await initializeDiscordProviderEndpointForTest({
+      restApiBaseUrl: `http://127.0.0.1:${port}/rest/v10`,
+      gatewayBotUrl: `http://127.0.0.1:${port}/metadata`,
+      gatewayOrigin: `ws://127.0.0.1:${port}`,
+    });
+    const registerClient = vi.fn(async () => undefined);
+    const plugin = createPlugin({ registerClient });
+
+    try {
+      await expect(
+        (
+          plugin as unknown as {
+            registerClient: (client: { options: { token: string } }) => Promise<void>;
+          }
+        ).registerClient({ options: { token: "test-token" } }),
+      ).rejects.toThrow(/Failed to get gateway information from Discord/);
+      expect(registerClient).not.toHaveBeenCalled();
+    } finally {
+      await new Promise<void>((resolve) => {
+        server.close(() => {
+          resolve();
+        });
+      });
+    }
   });
 
   it("emits transport activity for current gateway socket messages", () => {
