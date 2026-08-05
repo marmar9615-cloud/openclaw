@@ -17,6 +17,7 @@ const PRIVATE_PLUGIN_SDK_SUBPATHS_PATH = path.resolve(
   TEST_DIR,
   "../../scripts/lib/plugin-sdk-private-local-only-subpaths.json",
 );
+const GATEWAY_CHILD_PATH = path.resolve(TEST_DIR, "../../extensions/qa-lab/src/gateway-child.ts");
 const tempRoots: string[] = [];
 
 function mkTempRoot() {
@@ -247,6 +248,11 @@ describe("package Telegram live Docker E2E", () => {
       executablePath: command,
       usePackagedPlugins: true,
     });
+
+    const gatewayChild = readFileSync(GATEWAY_CHILD_PATH, "utf8");
+    expect(gatewayChild).toContain("params.command?.usePackagedPlugins === true");
+    expect(gatewayChild).toContain("stageQaPackagedMockAuthProfiles");
+    expect(gatewayChild).toContain('"paste-api-key"');
   });
 
   it("mounts configured output paths before entering the container", () => {
