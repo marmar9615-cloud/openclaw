@@ -147,6 +147,19 @@ describe("package Telegram live Docker E2E", () => {
     expect(runner).toContain("failFast: true");
   });
 
+  it("adds RTT probes to the canonical Telegram scenario selection", () => {
+    const runner = readFileSync(
+      path.resolve(TEST_DIR, "../../scripts/e2e/npm-telegram-live-runner.ts"),
+      "utf8",
+    );
+
+    expect(runner).toContain("resolveTelegramQaScenarioIds");
+    expect(runner).toContain(
+      "resolvedScenarioIds: includeRoundTripProbeScenario(resolvedScenarioIds, rttOptions)",
+    );
+    expect(runner).toContain("roundTripProbe: createRoundTripProbe(rttOptions)");
+  });
+
   it("can install a resolved package tarball instead of a registry spec", () => {
     const script = readFileSync(DOCKER_SCRIPT_PATH, "utf8");
 
@@ -418,6 +431,39 @@ describe("package Telegram live Docker E2E", () => {
         conversation: { id: "telegram-rtt-room", kind: "group" },
       },
     });
+  });
+
+  it("adds the default RTT canary to an empty canonical selection", () => {
+    const options = testing.resolveRttOptions({});
+
+    expect(testing.includeRoundTripProbeScenario([], options)).toEqual(["channel-canary"]);
+  });
+
+  it("keeps focused non-RTT selections unchanged", () => {
+    const scenarioIds = ["telegram-status-command"];
+    const options = testing.resolveRttOptions({}, scenarioIds);
+
+    expect(testing.includeRoundTripProbeScenario(scenarioIds, options)).toEqual(scenarioIds);
+  });
+
+  it("appends an explicit RTT canary to a focused non-canary selection", () => {
+    const scenarioIds = ["telegram-status-command"];
+    const options = testing.resolveRttOptions(
+      { OPENCLAW_NPM_TELEGRAM_RTT_CHECKS: "channel-canary" },
+      scenarioIds,
+    );
+
+    expect(testing.includeRoundTripProbeScenario(scenarioIds, options)).toEqual([
+      "telegram-status-command",
+      "channel-canary",
+    ]);
+  });
+
+  it("does not duplicate an already selected RTT canary", () => {
+    const scenarioIds = ["channel-canary", "telegram-status-command"];
+    const options = testing.resolveRttOptions({}, scenarioIds);
+
+    expect(testing.includeRoundTripProbeScenario(scenarioIds, options)).toEqual(scenarioIds);
   });
 
   it("rejects retired RTT scenario ids", () => {
