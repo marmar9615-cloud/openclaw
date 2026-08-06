@@ -121,6 +121,7 @@ export async function consumeAcpTurnStream(params: {
   runtime: AcpRuntime;
   turn: AcpRuntimeTurnInput;
   eventGate: AcpTurnEventGate;
+  onTurnStreamAcquired?: () => Promise<void> | void;
   onEvent?: (event: AcpRuntimeEvent) => Promise<void> | void;
   onOutputEvent?: (
     event: Extract<AcpRuntimeEvent, { type: "text_delta" | "tool_call" }>,
@@ -129,6 +130,7 @@ export async function consumeAcpTurnStream(params: {
   if (params.runtime.startTurn) {
     // startTurn exposes result and event streams separately; coordinate both before reporting done.
     const turn = params.runtime.startTurn(params.turn);
+    await params.onTurnStreamAcquired?.();
     const eventsPromise = consumeAcpTurnEvents({
       events: turn.events,
       eventGate: params.eventGate,
@@ -198,8 +200,10 @@ export async function consumeAcpTurnStream(params: {
     };
   }
 
+  const events = params.runtime.runTurn(params.turn);
+  await params.onTurnStreamAcquired?.();
   return await consumeAcpTurnEvents({
-    events: params.runtime.runTurn(params.turn),
+    events,
     eventGate: params.eventGate,
     onEvent: params.onEvent,
     onOutputEvent: params.onOutputEvent,

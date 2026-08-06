@@ -168,6 +168,7 @@ describe("AcpSessionManager turn results", () => {
       });
 
       const events: string[] = [];
+      const onTurnStreamAcquired = vi.fn();
       const manager = new AcpSessionManager();
       await manager.runTurn({
         provenance: "system",
@@ -176,12 +177,14 @@ describe("AcpSessionManager turn results", () => {
         text: "Print the current directory",
         mode: "prompt",
         requestId: "direct-parented-start-turn-text-run",
+        onTurnStreamAcquired,
         onEvent: (event) => {
           events.push(event.type);
         },
       });
 
       expect(runtimeState.runTurn).not.toHaveBeenCalled();
+      expect(onTurnStreamAcquired).toHaveBeenCalledTimes(1);
       expect(events).toEqual(["text_delta", "done"]);
       expectRecordFields(requireTaskByRunId("direct-parented-start-turn-text-run"), {
         runtime: "acp",
@@ -955,6 +958,7 @@ describe("AcpSessionManager turn results", () => {
         });
 
       const manager = new AcpSessionManager();
+      const onTurnStreamAcquired = vi.fn();
       await expect(
         manager.runTurn({
           provenance: "system",
@@ -963,18 +967,52 @@ describe("AcpSessionManager turn results", () => {
           text: "do work",
           mode: "prompt",
           requestId: "run-1",
+          onTurnStreamAcquired,
         }),
         message,
       ).resolves.toBeUndefined();
 
       expect(runtimeState.ensureSession, message).toHaveBeenCalledTimes(2);
       expect(runtimeState.runTurn, message).toHaveBeenCalledTimes(2);
+      expect(onTurnStreamAcquired, message).toHaveBeenCalledTimes(1);
       const states = extractStatesFromUpserts();
       expect(states, message).toContain("running");
       expect(states, message).toContain("idle");
       expect(states, message).not.toContain("error");
       resetAcpSessionManagerForTests();
     }
+  });
+
+  it("does not report acquisition when legacy runTurn throws synchronously", async () => {
+    const runtimeState = createRuntime();
+    runtimeState.runtime.runTurn = vi.fn(() => {
+      throw new Error("runtime rejected before stream acquisition");
+    });
+    hoisted.requireAcpRuntimeBackendMock.mockReturnValue({
+      id: "acpx",
+      runtime: runtimeState.runtime,
+    });
+    hoisted.readAcpSessionEntryMock.mockReturnValue({
+      sessionKey: "agent:codex:acp:session-1",
+      storeSessionKey: "agent:codex:acp:session-1",
+      acp: readySessionMeta(),
+    });
+    const onTurnStreamAcquired = vi.fn();
+
+    const manager = new AcpSessionManager();
+    await expect(
+      manager.runTurn({
+        provenance: "system",
+        cfg: baseCfg,
+        sessionKey: "agent:codex:acp:session-1",
+        text: "do work",
+        mode: "prompt",
+        requestId: "run-sync-rejection",
+        onTurnStreamAcquired,
+      }),
+    ).rejects.toThrow("runtime rejected before stream acquisition");
+
+    expect(onTurnStreamAcquired).not.toHaveBeenCalled();
   });
 
   // Drives a thread-bound persistent ACP session whose first turn fails because
