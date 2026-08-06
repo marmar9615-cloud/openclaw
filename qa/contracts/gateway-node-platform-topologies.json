@@ -1,0 +1,150 @@
+{
+  "kind": "openclaw.gateway-node-platform-topology-inventory",
+  "platforms": [
+    {
+      "platform": "macos",
+      "topology": {
+        "kind": "direct-ws",
+        "gatewayNegotiator": "macos",
+        "edges": [
+          {
+            "from": "macos",
+            "to": "gateway",
+            "transport": "websocket"
+          }
+        ]
+      },
+      "implementationOwners": [
+        {
+          "repository": "openclaw/openclaw",
+          "path": "apps/macos/Sources/OpenClaw/NodeMode/MacNodeModeCoordinator.swift"
+        },
+        {
+          "repository": "openclaw/openclaw",
+          "path": "apps/shared/OpenClawKit/Sources/OpenClawKit/GatewayChannel.swift"
+        }
+      ]
+    },
+    {
+      "platform": "ios",
+      "topology": {
+        "kind": "direct-ws",
+        "gatewayNegotiator": "ios",
+        "edges": [
+          {
+            "from": "ios",
+            "to": "gateway",
+            "transport": "websocket"
+          }
+        ]
+      },
+      "implementationOwners": [
+        {
+          "repository": "openclaw/openclaw",
+          "path": "apps/ios/Sources/Model/NodeAppModel.swift"
+        },
+        {
+          "repository": "openclaw/openclaw",
+          "path": "apps/shared/OpenClawKit/Sources/OpenClawKit/GatewayChannel.swift"
+        }
+      ]
+    },
+    {
+      "platform": "watchos",
+      "topology": {
+        "kind": "watch-http",
+        "gatewayNegotiator": "watchos",
+        "edges": [
+          {
+            "from": "watchos",
+            "to": "gateway",
+            "transport": "bounded-https-challenge-connect-poll"
+          }
+        ]
+      },
+      "implementationOwners": [
+        {
+          "repository": "openclaw/openclaw",
+          "path": "apps/ios/WatchApp/Sources/WatchDirectNode.swift"
+        },
+        {
+          "repository": "openclaw/openclaw",
+          "path": "src/gateway/watch-node-http.ts"
+        }
+      ]
+    },
+    {
+      "platform": "android",
+      "topology": {
+        "kind": "direct-ws",
+        "gatewayNegotiator": "android",
+        "edges": [
+          {
+            "from": "android",
+            "to": "gateway",
+            "transport": "websocket"
+          }
+        ]
+      },
+      "implementationOwners": [
+        {
+          "repository": "openclaw/openclaw",
+          "path": "apps/android/app/src/main/java/ai/openclaw/app/gateway/GatewaySession.kt"
+        }
+      ]
+    },
+    {
+      "platform": "wearos",
+      "topology": {
+        "kind": "wear-two-hop",
+        "gatewayNegotiator": "android-phone",
+        "edges": [
+          {
+            "from": "wearos",
+            "to": "android-phone",
+            "transport": "wear-message-api-data-layer"
+          },
+          {
+            "from": "android-phone",
+            "to": "gateway",
+            "transport": "websocket"
+          }
+        ]
+      },
+      "implementationOwners": [
+        {
+          "repository": "openclaw/openclaw",
+          "path": "apps/android/wear/src/main/java/ai/openclaw/wear/WearProxyClient.kt"
+        },
+        {
+          "repository": "openclaw/openclaw",
+          "path": "apps/android/app/src/main/java/ai/openclaw/app/wear/WearProxyBridge.kt"
+        },
+        {
+          "repository": "openclaw/openclaw",
+          "path": "apps/android/app/src/main/java/ai/openclaw/app/gateway/GatewaySession.kt"
+        }
+      ]
+    },
+    {
+      "platform": "windows",
+      "topology": {
+        "kind": "direct-ws",
+        "gatewayNegotiator": "windows",
+        "edges": [
+          {
+            "from": "windows",
+            "to": "gateway",
+            "transport": "websocket"
+          }
+        ]
+      },
+      "implementationOwners": [
+        {
+          "repository": "openclaw/openclaw-windows-node",
+          "path": null
+        }
+      ]
+    }
+  ]
+}
