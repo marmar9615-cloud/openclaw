@@ -126,11 +126,14 @@ function isUnsupportedNodeSkillsUpdateError(error: unknown): boolean {
   );
 }
 
+const NODE_PROTOCOL_FEATURES_UPDATE_METHOD = "node.protocolFeatures.update";
+
 function isUnsupportedNodeProtocolFeaturesUpdateError(error: unknown): boolean {
   return (
     error instanceof GatewayClientRequestError &&
     error.gatewayCode === "INVALID_REQUEST" &&
-    error.message.includes("unknown method: node.protocolFeatures.update")
+    (error.message.includes(`unknown method: ${NODE_PROTOCOL_FEATURES_UPDATE_METHOD}`) ||
+      error.message.includes("unauthorized role: node"))
   );
 }
 
@@ -138,9 +141,13 @@ type NodeInvokeSessionEnvelopeMode = "authoritative" | "legacy";
 
 async function negotiateNodeInvokeSessionEnvelope(
   client: GatewayClient,
+  advertisedMethods: readonly string[],
 ): Promise<NodeInvokeSessionEnvelopeMode> {
+  if (!advertisedMethods.includes(NODE_PROTOCOL_FEATURES_UPDATE_METHOD)) {
+    return "legacy";
+  }
   try {
-    await client.request("node.protocolFeatures.update", {
+    await client.request(NODE_PROTOCOL_FEATURES_UPDATE_METHOD, {
       features: [NODE_INVOKE_SESSION_KEY_ENVELOPE_PROTOCOL_FEATURE],
     });
     return "authoritative";
@@ -149,8 +156,8 @@ async function negotiateNodeInvokeSessionEnvelope(
       return "legacy";
     }
     writeStderrLine(`node host protocol feature publish failed: ${String(error)}`);
-    // Only a confirmed unknown-method response enables the legacy nested field.
-    // Other failures keep omitted envelopes fail-closed while the connection lives.
+    // Only confirmed legacy responses enable the nested field. Other failures
+    // keep omitted envelopes fail-closed while the connection lives.
     return "authoritative";
   }
 }
@@ -383,7 +390,7 @@ export async function runNodeHost(opts: NodeHostRunOptions): Promise<void> {
         envelopeModeAtReceipt,
       );
     },
-    onHelloOk: () => {
+    onHelloOk: (hello) => {
       writeStderrLine(`node host gateway connected: ${url}`);
       gatewayConnectionGeneration += 1;
       const connectionGeneration = gatewayConnectionGeneration;
@@ -391,7 +398,10 @@ export async function runNodeHost(opts: NodeHostRunOptions): Promise<void> {
       queuedNodeInvokeCancellations.clear();
       gatewayHelloReceived = true;
       nodeInvokeSessionEnvelopeNegotiationComplete = false;
-      nodeInvokeSessionEnvelopeMode = negotiateNodeInvokeSessionEnvelope(client).then((mode) => {
+      nodeInvokeSessionEnvelopeMode = negotiateNodeInvokeSessionEnvelope(
+        client,
+        hello.features.methods,
+      ).then((mode) => {
         if (connectionGeneration === gatewayConnectionGeneration) {
           nodeInvokeSessionEnvelopeNegotiationComplete = true;
         }

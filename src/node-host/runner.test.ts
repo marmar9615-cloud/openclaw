@@ -529,7 +529,7 @@ describe("runNodeHost", () => {
 
     options?.onHelloOk?.({
       protocol: 1,
-      features: { methods: [], events: [] },
+      features: { methods: ["node.protocolFeatures.update"], events: [] },
     } as unknown as Parameters<NonNullable<GatewayClientOptions["onHelloOk"]>>[0]);
 
     expect(client?.request).toHaveBeenCalledWith("node.protocolFeatures.update", {
