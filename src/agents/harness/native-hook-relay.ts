@@ -93,8 +93,6 @@ export function registerNativeHookRelay(
   pruneNativeHookRelayPermissionAllowAlways();
   const relayId = normalizeRelayId(params.relayId) ?? randomUUID();
   const generation = normalizeRelayGeneration(params.generation) ?? randomUUID();
-  const generationMismatchGraceMs = normalizePositiveInteger(params.generationMismatchGraceMs, 0);
-  const now = Date.now();
   const expiresAtMs = resolveNativeHookRelayExpiresAtMs(params.ttlMs);
   if (expiresAtMs === undefined) {
     throw new Error("Native hook relay expiry is outside the supported Date range");
@@ -108,9 +106,6 @@ export function registerNativeHookRelay(
     relayId,
     provider: params.provider,
     generation,
-    ...(generationMismatchGraceMs > 0
-      ? { generationMismatchGraceExpiresAtMs: now + generationMismatchGraceMs }
-      : {}),
     ...(params.agentId ? { agentId: params.agentId } : {}),
     sessionId: params.sessionId,
     ...(params.sessionKey ? { sessionKey: params.sessionKey } : {}),
@@ -243,14 +238,7 @@ export async function invokeNativeHookRelay(
   if (params.requireGeneration) {
     const generation = readNonEmptyString(params.generation, "generation");
     if (generation !== registration.generation) {
-      if (!canAcceptNativeHookRelayGenerationMismatch(registration, generation)) {
-        throw new Error(NATIVE_HOOK_RELAY_BRIDGE_STALE_REGISTRATION_ERROR);
-      }
-      log.debug("native hook relay accepted bootstrap generation mismatch", {
-        relayId,
-        event,
-        runId: registration.runId,
-      });
+      throw new Error(NATIVE_HOOK_RELAY_BRIDGE_STALE_REGISTRATION_ERROR);
     }
   }
   if (!registration.allowedEvents.includes(event)) {
@@ -364,21 +352,6 @@ function removeNativeHookRelayInvocations(relayId: string): void {
       invocations.splice(index, 1);
     }
   }
-}
-
-function canAcceptNativeHookRelayGenerationMismatch(
-  registration: NativeHookRelayRegistration,
-  generation: string,
-): boolean {
-  const expiresAtMs = registration.generationMismatchGraceExpiresAtMs;
-  if (typeof expiresAtMs !== "number" || Date.now() > expiresAtMs) {
-    return false;
-  }
-  if (registration.generationMismatchGraceAcceptedGeneration) {
-    return registration.generationMismatchGraceAcceptedGeneration === generation;
-  }
-  registration.generationMismatchGraceAcceptedGeneration = generation;
-  return true;
 }
 
 function pruneExpiredNativeHookRelays(now = Date.now()): void {
