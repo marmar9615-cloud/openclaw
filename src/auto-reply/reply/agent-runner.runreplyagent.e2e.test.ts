@@ -271,7 +271,6 @@ function createMinimalRun(params?: {
   blockStreamingEnabled?: boolean;
   isActive?: boolean;
   isRunActive?: () => boolean;
-  isStreaming?: boolean;
   shouldSteer?: boolean;
   shouldFollowup?: boolean;
   resolvedQueueMode?: string;
@@ -350,7 +349,6 @@ function createMinimalRun(params?: {
         shouldFollowup: params?.shouldFollowup ?? false,
         isActive: params?.isActive ?? false,
         isRunActive: params?.isRunActive,
-        isStreaming: params?.isStreaming ?? false,
         opts,
         typing,
         sessionEntry: params?.sessionEntry,
@@ -453,7 +451,6 @@ describe("runReplyAgent active steering", () => {
     bindReplyOperationTyping(active, taskTyping);
     const { run, typing } = createMinimalRun({
       isActive: true,
-      isStreaming: true,
       shouldSteer: true,
       resolvedQueueMode: "steer",
       sessionCtx: {
@@ -488,7 +485,6 @@ describe("runReplyAgent active steering", () => {
     const { run, sourceTurnId } = createMinimalRun({
       opts: { [REPLY_OPERATION_RUN_STATE]: runState },
       isActive: true,
-      isStreaming: true,
       shouldSteer: true,
       resolvedQueueMode: "steer",
       sessionCtx: {
@@ -551,7 +547,6 @@ describe("runReplyAgent active steering", () => {
     active.setPhase("running");
     const { run } = createMinimalRun({
       isActive: true,
-      isStreaming: true,
       shouldSteer: true,
       resolvedQueueMode: "steer",
       sessionCtx: {
@@ -582,7 +577,6 @@ describe("runReplyAgent active steering", () => {
     state.runEmbeddedAgentMock.mockImplementationOnce(runHookBackedEmbeddedAgent);
     const { run } = createMinimalRun({
       isActive: true,
-      isStreaming: true,
       shouldSteer: true,
       resolvedQueueMode: "steer",
       sessionCtx: {
@@ -612,7 +606,6 @@ describe("runReplyAgent active steering", () => {
     });
     const { followupRun, run } = createMinimalRun({
       isActive: true,
-      isStreaming: true,
       shouldSteer: true,
       resolvedQueueMode: "steer",
     });
@@ -648,7 +641,6 @@ describe("runReplyAgent active steering", () => {
     });
     const { run } = createMinimalRun({
       isActive: true,
-      isStreaming: true,
       shouldSteer: true,
       resolvedQueueMode: "steer",
       replyOperation: sourceReservation,
@@ -686,7 +678,6 @@ describe("runReplyAgent active steering", () => {
     const { run, typing } = createMinimalRun({
       opts: { turnAdoptionLifecycle: { onAdopted } },
       isActive: true,
-      isStreaming: true,
       shouldSteer: true,
       resolvedQueueMode: "steer",
     });
@@ -728,7 +719,6 @@ describe("runReplyAgent active steering", () => {
     const { run } = createMinimalRun({
       opts: { onBlockReply, turnAdoptionLifecycle: { onAdopted } },
       isActive: true,
-      isStreaming: true,
       shouldSteer: true,
       shouldFollowup: true,
       resolvedQueueMode: "steer",
@@ -776,7 +766,6 @@ describe("runReplyAgent active steering", () => {
     const { run, typing } = createMinimalRun({
       opts: { turnAdoptionLifecycle: { onAdopted } },
       isActive: true,
-      isStreaming: true,
       shouldSteer: true,
       shouldFollowup: true,
       resolvedQueueMode: "steer",
@@ -806,7 +795,6 @@ describe("runReplyAgent active steering", () => {
     const { followupRun, run, sourceTurnId } = createMinimalRun({
       opts: { turnAdoptionLifecycle: { onAdopted } },
       isActive: true,
-      isStreaming: true,
       shouldSteer: true,
       resolvedQueueMode: "steer",
       sessionCtx: {
@@ -1018,7 +1006,6 @@ describe("runReplyAgent heartbeat followup guard", () => {
     const { run, typing } = createMinimalRun({
       opts: { isHeartbeat: true },
       isActive: true,
-      isStreaming: true,
       shouldSteer: true,
       shouldFollowup: true,
       resolvedQueueMode: "collect",
