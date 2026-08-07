@@ -37,11 +37,7 @@
 import * as crypto from "node:crypto";
 import type { FileHandle } from "node:fs/promises";
 import * as path from "node:path";
-import {
-  detectMime,
-  extensionForMime,
-  mimeTypeFromFilePath,
-} from "openclaw/plugin-sdk/media-mime";
+import { detectMime, extensionForMime, mimeTypeFromFilePath } from "openclaw/plugin-sdk/media-mime";
 import { readResponseTextLimited } from "openclaw/plugin-sdk/provider-http";
 import { sleep } from "openclaw/plugin-sdk/runtime-env";
 import { fetchWithSsrFGuard } from "openclaw/plugin-sdk/ssrf-runtime";
