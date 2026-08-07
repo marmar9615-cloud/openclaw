@@ -180,7 +180,9 @@ function preparedBatchFromLowLevelInput(params: QueuedDeliveryPayload): Prepared
   if (params.preparedBatch) {
     return params.preparedBatch;
   }
-  if (!params.payloads) throw new Error("Delivery queue entry requires a prepared payload batch");
+  if (!params.payloads) {
+    throw new Error("Delivery queue entry requires a prepared payload batch");
+  }
   return createUnmodifiedPreparedOutboundBatch(params.payloads);
 }
 
@@ -358,9 +360,8 @@ type AckDeliveryOptions = {
   expectedPlatformSendAttemptId?: string | null;
 };
 
-function lostPlatformClaim(id: string): Error {
-  return new Error(`Stable delivery platform claim was lost: ${id}`);
-}
+const lostPlatformClaim = (id: string): Error =>
+  new Error(`Stable delivery platform claim was lost: ${id}`);
 
 /** Remove a successfully delivered entry, or retain its producer-owned receipt. */
 export async function ackDelivery(
