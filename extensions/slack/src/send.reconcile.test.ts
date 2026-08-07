@@ -387,7 +387,7 @@ describe("reconcileSlackUnknownSend", () => {
     await expect(
       reconcileSlackUnknownSend(createUnknownSendContext({ cfg: tokenCfg })),
     ).resolves.toEqual(expect.objectContaining({ status: "sent" }));
-    expect(slackClientMocks.createSlackReadClient).toHaveBeenCalledWith("xoxp-read");
+    expect(slackClientMocks.createSlackReadClient).toHaveBeenCalledWith("xoxp-read", undefined);
     expect(slackClientMocks.getSlackWriteClient).toHaveBeenCalledWith("xoxb-write");
     expect(readClient.conversations.history).toHaveBeenCalledOnce();
     expect(writeClient.conversations.history).not.toHaveBeenCalled();
