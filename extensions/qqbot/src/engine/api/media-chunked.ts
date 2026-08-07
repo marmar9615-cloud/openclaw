@@ -36,7 +36,7 @@
 
 import * as crypto from "node:crypto";
 import type { FileHandle } from "node:fs/promises";
-import * as path from "node:path";
+import * as nodePath from "node:path";
 import { detectMime, extensionForMime, mimeTypeFromFilePath } from "openclaw/plugin-sdk/media-mime";
 import { readResponseTextLimited } from "openclaw/plugin-sdk/provider-http";
 import { sleep } from "openclaw/plugin-sdk/runtime-env";
@@ -491,8 +491,8 @@ async function resolveChunkedImageFileName(input: ChunkedInput): Promise<string>
   if (!extension) {
     return input.fileName;
   }
-  const parsed = path.parse(input.fileName);
-  return path.format({ name: parsed.name || input.fileName, ext: extension });
+  const parsed = nodePath.parse(input.fileName);
+  return nodePath.format({ name: parsed.name || input.fileName, ext: extension });
 }
 
 // ============ Hash computation ============
