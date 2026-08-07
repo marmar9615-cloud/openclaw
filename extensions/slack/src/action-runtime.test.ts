@@ -91,6 +91,56 @@ describe("handleSlackAction", () => {
     );
   });
 
+  it.each([
+    {
+      name: "a non-Slack current channel",
+      context: {
+        currentChannelProvider: "discord",
+        currentWorkspaceId: "T1",
+        requesterAccountId: "default",
+      },
+    },
+    {
+      name: "a different Slack account",
+      context: {
+        currentChannelProvider: "slack",
+        currentWorkspaceId: "T1",
+        requesterAccountId: "other",
+      },
+    },
+  ])("does not infer an enterprise workspace from $name", async ({ context }) => {
+    await expect(
+      handleSlackAction(
+        { action: "readMessages", channelId: "C123" },
+        slackConfig({ enterpriseOrgInstall: true }),
+        context,
+      ),
+    ).rejects.toThrow(/workspaceId is required for Enterprise Grid actions/);
+    expect(readSlackMessages).not.toHaveBeenCalled();
+  });
+
+  it("ignores the trusted current workspace for workspace-install actions", async () => {
+    const cfg = slackConfig();
+
+    await handleSlackAction(
+      {
+        action: "react",
+        channelId: "C123",
+        messageId: "123.456",
+        emoji: "eyes",
+      },
+      cfg,
+      {
+        currentChannelProvider: "slack",
+        currentChannelId: "C123",
+        currentWorkspaceId: "T1",
+        requesterAccountId: "default",
+      },
+    );
+
+    expect(reactSlackMessage).toHaveBeenCalledWith("C123", "123.456", "eyes", { cfg });
+  });
+
   it("uses an explicit workspace for proactive enterprise actions", async () => {
     const cfg = slackConfig({ enterpriseOrgInstall: true });
 

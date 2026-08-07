@@ -510,9 +510,18 @@ export async function handleSlackAction(
   if (requestedWorkspaceIds.size > 1) {
     throw new Error("Slack workspaceId conflicts with the workspace-qualified target.");
   }
+  const requestedWorkspaceId = requestedWorkspaceIds.values().next().value as string | undefined;
+  const requesterAccountId = context?.requesterAccountId?.trim();
+  const currentWorkspaceId =
+    normalizeOptionalLowercaseString(context?.currentChannelProvider) === "slack" &&
+    requesterAccountId &&
+    normalizeAccountId(requesterAccountId) === normalizeAccountId(account.accountId)
+      ? normalizeSlackWorkspaceId(context?.currentWorkspaceId)
+      : undefined;
   const workspaceId =
-    (requestedWorkspaceIds.values().next().value as string | undefined) ??
-    normalizeSlackWorkspaceId(context?.currentWorkspaceId);
+    account.config.enterpriseOrgInstall === true
+      ? (requestedWorkspaceId ?? currentWorkspaceId)
+      : requestedWorkspaceId;
   if (account.config.enterpriseOrgInstall === true && !workspaceId) {
     throw new Error(
       "Slack workspaceId is required for Enterprise Grid actions outside a current Slack workspace.",

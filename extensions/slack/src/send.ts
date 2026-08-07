@@ -902,7 +902,7 @@ export async function reconcileSlackUnknownSend(
   });
   const targetWorkspaceId = parseSlackTarget(ctx.to)?.workspaceId;
   const workspaceIds = new Set(
-    [ctx.spaceId, targetWorkspaceId]
+    [account.config.enterpriseOrgInstall === true ? ctx.spaceId : undefined, targetWorkspaceId]
       .map((workspaceId) => normalizeSlackWorkspaceId(workspaceId))
       .filter((workspaceId): workspaceId is string => Boolean(workspaceId)),
   );

@@ -136,6 +136,18 @@ describe("reconcileSlackUnknownSend", () => {
     }
   });
 
+  it("ignores current workspace scope when reconciling a workspace install", async () => {
+    const client = createSlackReconcileTestClient();
+    const metadata = await postWithDeliveryMetadata({ client });
+    client.conversations.history.mockResolvedValueOnce({
+      messages: [{ ts: "1782584647.000002", metadata }],
+    });
+
+    await expect(
+      reconcileSlackUnknownSend(createUnknownSendContext({ spaceId: "T1" }), { client }),
+    ).resolves.toEqual(expect.objectContaining({ status: "sent" }));
+  });
+
   it("attaches a complete single-part marker to successful block sends", async () => {
     const client = createSlackReconcileTestClient();
     const sent = await sendMessageSlack("channel:C123", "Status", {

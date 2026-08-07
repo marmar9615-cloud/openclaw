@@ -199,7 +199,7 @@ async function resolveSlackSendContext(params: {
   const account = resolveSlackAccount({ cfg: params.cfg, accountId: params.accountId });
   const targetWorkspaceId = parseSlackTarget(params.to)?.workspaceId;
   const workspaceIds = new Set(
-    [params.spaceId, targetWorkspaceId]
+    [account.config.enterpriseOrgInstall === true ? params.spaceId : undefined, targetWorkspaceId]
       .map((workspaceId) => normalizeSlackWorkspaceId(workspaceId))
       .filter((workspaceId): workspaceId is string => Boolean(workspaceId)),
   );

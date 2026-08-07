@@ -1016,6 +1016,23 @@ describe("slackPlugin outbound", () => {
     expect(result).toEqual({ channel: "slack", messageId: "m-text" });
   });
 
+  it("ignores current workspace scope for workspace-install outbound", async () => {
+    const sendSlack = vi.fn().mockResolvedValue({ messageId: "m-text" });
+    const sendText = requireSlackSendText();
+
+    const result = await sendText({
+      cfg,
+      to: "C123",
+      spaceId: "T1",
+      text: "hello",
+      accountId: "default",
+      deps: { sendSlack },
+    });
+
+    expect(requireMockCallArg(sendSlack, 0, 2)).not.toHaveProperty("workspaceId");
+    expect(result).toEqual({ channel: "slack", messageId: "m-text" });
+  });
+
   it("rejects workspace-unqualified enterprise outbound before resolving the injected sender", async () => {
     const sendSlack = vi.fn().mockResolvedValue({ messageId: "should-not-send" });
     const sendText = requireSlackSendText();
