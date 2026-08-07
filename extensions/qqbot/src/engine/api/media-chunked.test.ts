@@ -5,6 +5,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { createSolidPngBuffer } from "openclaw/plugin-sdk/test-fixtures";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { useAutoCleanupTempDirTracker } from "../../../../../test/helpers/temp-dir.js";
 import { normalizeSource } from "../messaging/media-source.js";
 import {
   ApiError,
@@ -81,6 +82,7 @@ function makePrepareResponse(uploadId: string, parts: number): UploadPrepareResp
 /** Fixture: a 20-byte buffer that spans 3 parts at block_size=8. */
 const FIXTURE_BUFFER = Buffer.from("0123456789abcdefghij"); // 20 bytes
 const IMAGE_FIXTURE_BUFFER = createSolidPngBuffer(2, 2, { r: 40, g: 90, b: 180, a: 96 });
+const tempDirs = useAutoCleanupTempDirTracker(afterEach);
 
 // ============ fetch stub for COS PUT ============
 
@@ -452,7 +454,7 @@ describe("media-chunked: ChunkedMediaApi.uploadChunked", () => {
   ])(
     "reconciles chunked image filenames without changing source custody: $label",
     async ({ fileType, storedName, expectedName, bytes }) => {
-      const tmp = await fs.promises.mkdtemp(path.join(os.tmpdir(), "chunked-image-name-"));
+      const tmp = tempDirs.make("chunked-image-name-");
       const filePath = path.join(tmp, storedName);
       await fs.promises.writeFile(filePath, bytes);
       const source = await normalizeSource({ localPath: filePath }, { maxSize: 1024 * 1024 });
@@ -497,7 +499,6 @@ describe("media-chunked: ChunkedMediaApi.uploadChunked", () => {
         if (source.kind === "localPath") {
           await source.opened?.close().catch(() => undefined);
         }
-        await fs.promises.rm(tmp, { recursive: true, force: true });
       }
     },
   );
