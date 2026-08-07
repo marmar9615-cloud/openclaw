@@ -42,9 +42,17 @@ provider/model/API identity. Failed or aborted calls that end before the
 dispatch boundary use an explicit zero-submission fact instead of an invented
 attempt. Exact zero requires a structured `AiModelFetchResult` with
 `dispatch_attested` provenance; a legacy bare fetch without callback evidence
-remains unavailable. When a physical attempt is known but terminal provider fallback metadata is
-unavailable, scoped coverage lowers only the derived provider-fallback total
-and serving-model identity; attempt and event counts remain exact.
+remains unavailable. Directly injected provider SDK clients remain supported,
+but their endpoint and transport authority is partial/unverified because
+OpenClaw cannot attest the client's physical hops. When a physical attempt is
+known but terminal provider fallback metadata is unavailable, scoped coverage
+lowers only the derived provider-fallback total and serving-model identity;
+endpoint-authority or terminal-completion ambiguity instead marks transport
+semantics unverified. Attempt and event counts remain exact.
+Anthropic server fallback is enabled only when the host installs the named
+blocking dispatch guard. Without that guard, the requested model call remains
+usable, the fallback beta and payload field are omitted, and transport
+authority remains partial/unverified.
 
 The explicit `@openclaw/ai/internal/anthropic`, `openai`, `retry-after`,
 `runtime`, and `shared` subpaths exist for the OpenClaw application itself.

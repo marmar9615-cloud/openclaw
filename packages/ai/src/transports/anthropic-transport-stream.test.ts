@@ -10,6 +10,8 @@ import {
   configureAiTransportHost,
   getAiTransportHost,
   type AiInlineContentBlock,
+  type AiModelFetchOptions,
+  type AiModelTransportEvent,
 } from "../host.js";
 
 const { buildGuardedModelFetchMock, guardedFetchMock } = vi.hoisted(() => ({
@@ -67,6 +69,27 @@ function redactTestSecrets<T>(value: T): T {
   ) as T;
 }
 
+function testFetchUrl(input: RequestInfo | URL): string {
+  return typeof input === "string" || input instanceof URL ? String(input) : input.url;
+}
+
+function buildTestGuardedFetch(
+  _model: Model,
+  _timeoutMs?: number,
+  options?: AiModelFetchOptions & {
+    beforeFetchDispatch?: (params: { url: string; init: RequestInit }) => void;
+  },
+): typeof fetch {
+  return async (input, init) => {
+    const dispatch = { url: testFetchUrl(input), init: init ?? {} };
+    options?.beforeFetchDispatch?.(dispatch);
+    options?.observeFetchDispatch?.(dispatch);
+    const response = guardedFetchMock(input, init);
+    options?.onFetchDispatch?.();
+    return await response;
+  };
+}
+
 let createAnthropicMessagesTransportStreamFn: typeof import("./anthropic-transport-stream.js").createAnthropicMessagesTransportStreamFn;
 
 type AnthropicMessagesModel = Model<"anthropic-messages">;
@@ -106,7 +129,9 @@ function createSseResponse(events: Record<string, unknown>[] = []): Response {
 }
 
 function serializeSseEvents(events: Record<string, unknown>[]): string {
-  return events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join("");
+  return events
+    .map((event) => `event: ${String(event.type)}\ndata: ${JSON.stringify(event)}\n\n`)
+    .join("");
 }
 
 function createFailingSseResponse(events: Record<string, unknown>[], error: Error): Response {
@@ -334,10 +359,18 @@ describe("anthropic transport stream", () => {
     vi.unstubAllEnvs();
     buildGuardedModelFetchMock.mockReset();
     guardedFetchMock.mockReset();
-    buildGuardedModelFetchMock.mockReturnValue(guardedFetchMock);
+    buildGuardedModelFetchMock.mockImplementation(buildTestGuardedFetch);
     configureAiTransportHost({
       ...coreTransportHost,
       buildModelFetch: buildGuardedModelFetchMock,
+      buildModelFetchWithDispatchAttestation: (...args) => ({
+        fetch: buildGuardedModelFetchMock(...args),
+        provenance: "dispatch_attested",
+      }),
+      buildModelFetchWithBlockingDispatchGuard: (...args) => ({
+        fetch: buildGuardedModelFetchMock(...args),
+        provenance: "dispatch_attested",
+      }),
       redactSecrets: redactTestSecrets,
       resolveProviderEndpointClass: resolveTestEndpointClass,
       resolveProviderRequestCapabilities: (input) => {
@@ -352,7 +385,19 @@ describe("anthropic transport stream", () => {
         };
       },
     });
-    guardedFetchMock.mockResolvedValue(createSseResponse());
+    guardedFetchMock.mockResolvedValue(
+      createSseResponse([
+        {
+          type: "message_start",
+          message: {
+            id: "msg_default",
+            model: "claude-sonnet-4-6",
+            usage: { input_tokens: 1, output_tokens: 0 },
+          },
+        },
+        { type: "message_stop" },
+      ]),
+    );
   });
 
   afterEach(() => {
@@ -605,7 +650,7 @@ describe("anthropic transport stream", () => {
     );
 
     const result = await runTransportStream(
-      makeAnthropicTransportModel(),
+      makeAnthropicTransportModel({ baseUrl: "https://compatible.example" }),
       {
         messages: [{ role: "user", content: "run date" }],
       } as AnthropicStreamContext,
@@ -646,7 +691,11 @@ describe("anthropic transport stream", () => {
       } as AnthropicStreamOptions,
     );
 
-    expect(buildGuardedModelFetchMock).toHaveBeenCalledWith(model);
+    expect(buildGuardedModelFetchMock).toHaveBeenCalledWith(
+      model,
+      undefined,
+      expect.objectContaining({ observeFetchDispatch: expect.any(Function) }),
+    );
     const [url, init] = guardedFetchCall();
     expect(url).toBe("https://api.anthropic.com/v1/messages");
     expect(init?.method).toBe("POST");
@@ -702,6 +751,43 @@ describe("anthropic transport stream", () => {
       );
     },
   );
+
+  it("keeps hostless fallback candidates usable with partial authority", async () => {
+    const events: AiModelTransportEvent[] = [];
+    configureAiTransportHost({
+      ...getAiTransportHost(),
+      buildModelFetch: buildGuardedModelFetchMock,
+      buildModelFetchWithDispatchAttestation: undefined,
+      buildModelFetchWithBlockingDispatchGuard: undefined,
+      observeModelTransportEvent: (event) => events.push(event),
+    });
+
+    const result = await runTransportStream(
+      makeAnthropicTransportModel({ id: "claude-fable-5", name: "Claude Fable 5" }),
+      {
+        messages: [{ role: "user", content: "hello" }],
+      } as AnthropicStreamContext,
+      {
+        apiKey: "sk-ant-api",
+        requestId: "call-native-hostless-fallback-candidate",
+      } as AnthropicStreamOptions,
+    );
+
+    expect(result.stopReason).toBe("stop");
+    expect(latestAnthropicRequest().payload.fallbacks).toBeUndefined();
+    expect(latestAnthropicRequestHeaders().get("anthropic-beta")).not.toContain(
+      "server-side-fallback-2026-07-01",
+    );
+    expect(events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "coverage",
+          callId: "call-native-hostless-fallback-candidate",
+          reason: "transport_endpoint_authority_partial",
+        }),
+      ]),
+    );
+  });
 
   it.each([
     {
@@ -842,6 +928,7 @@ describe("anthropic transport stream", () => {
       { type: "text", text: "partial " },
       { type: "text", text: "continued" },
     ]);
+
     expect(result.responseModel).toBe("claude-opus-4-8");
     expect(result.diagnostics).toEqual([
       expect.objectContaining({
@@ -856,6 +943,705 @@ describe("anthropic transport stream", () => {
     // Fallback-served turns bill at the serving model's rates, not Fable's:
     // 5 input tokens at $5/MTok plus 9 output tokens at $25/MTok.
     expect(result.usage.cost.total).toBeCloseTo(0.00025, 10);
+  });
+
+  it("records one completed native attempt after guarded egress and terminal EOF", async () => {
+    const events: AiModelTransportEvent[] = [];
+    guardedFetchMock.mockResolvedValueOnce(
+      createSseResponse([
+        {
+          type: "message_start",
+          message: {
+            id: "msg_accounted",
+            model: "claude-sonnet-4-6",
+            usage: { input_tokens: 1, output_tokens: 0 },
+          },
+        },
+        {
+          type: "message_delta",
+          delta: { stop_reason: "end_turn" },
+          usage: { input_tokens: 1, output_tokens: 1 },
+        },
+        { type: "message_stop" },
+      ]),
+    );
+    configureAiTransportHost({
+      ...getAiTransportHost(),
+      buildModelFetch: (_model, _timeout, options?: AiModelFetchOptions) => async (input, init) => {
+        options?.observeFetchDispatch?.({ url: testFetchUrl(input), init: init ?? {} });
+        const response = guardedFetchMock(input, init);
+        options?.onFetchDispatch?.();
+        return await response;
+      },
+      observeModelTransportEvent: (event) => events.push(event),
+    });
+
+    const result = await runTransportStream(
+      makeAnthropicTransportModel(),
+      { messages: [{ role: "user", content: "hello" }] } as AnthropicStreamContext,
+      {
+        apiKey: "sk-ant-api",
+        requestId: "call-native-complete",
+      } as AnthropicStreamOptions,
+    );
+
+    expect(result.stopReason).toBe("stop");
+    expect(events).toEqual([
+      expect.objectContaining({
+        type: "attempt",
+        callId: "call-native-complete",
+        ordinal: 1,
+        reason: "initial",
+        outcome: "completed",
+        statusCode: 200,
+      }),
+    ]);
+  });
+
+  it("records one failed native attempt when EOF arrives before message_stop", async () => {
+    const events: AiModelTransportEvent[] = [];
+    guardedFetchMock.mockResolvedValueOnce(
+      createSseResponse([
+        {
+          type: "message_start",
+          message: {
+            id: "msg_incomplete_accounting",
+            model: "claude-sonnet-4-6",
+            usage: { input_tokens: 1, output_tokens: 0 },
+          },
+        },
+        {
+          type: "content_block_start",
+          index: 0,
+          content_block: { type: "text", text: "" },
+        },
+        {
+          type: "content_block_delta",
+          index: 0,
+          delta: { type: "text_delta", text: "partial" },
+        },
+      ]),
+    );
+    configureAiTransportHost({
+      ...getAiTransportHost(),
+      buildModelFetch: (_model, _timeout, options?: AiModelFetchOptions) => async (input, init) => {
+        options?.observeFetchDispatch?.({ url: testFetchUrl(input), init: init ?? {} });
+        const response = guardedFetchMock(input, init);
+        options?.onFetchDispatch?.();
+        return await response;
+      },
+      observeModelTransportEvent: (event) => events.push(event),
+    });
+
+    const result = await runTransportStream(
+      makeAnthropicTransportModel(),
+      { messages: [{ role: "user", content: "hello" }] } as AnthropicStreamContext,
+      {
+        apiKey: "sk-ant-api",
+        requestId: "call-native-incomplete",
+      } as AnthropicStreamOptions,
+    );
+
+    expect(result.stopReason).toBe("error");
+    expect(result.errorMessage).toBe("Anthropic stream ended before message_stop");
+    expect(events).toEqual([
+      expect.objectContaining({
+        type: "attempt",
+        callId: "call-native-incomplete",
+        ordinal: 1,
+        outcome: "failed",
+        statusCode: 200,
+      }),
+    ]);
+  });
+
+  it("keeps native dispatch provenance local when one fetch is reused", async () => {
+    const events: AiModelTransportEvent[] = [];
+    const sharedFetch = vi.fn<typeof fetch>(() => {
+      throw new Error("blocked before provider egress");
+    });
+    const buildAttestedModelFetch = vi
+      .fn()
+      .mockReturnValueOnce({
+        fetch: sharedFetch,
+        provenance: "dispatch_attested" as const,
+      })
+      .mockReturnValueOnce(undefined);
+    configureAiTransportHost({
+      ...getAiTransportHost(),
+      buildModelFetch: () => sharedFetch,
+      buildModelFetchWithDispatchAttestation: buildAttestedModelFetch,
+      observeModelTransportEvent: (event) => events.push(event),
+    });
+
+    const attested = await runTransportStream(
+      makeAnthropicTransportModel(),
+      { messages: [{ role: "user", content: "hello" }] } as AnthropicStreamContext,
+      {
+        apiKey: "sk-ant-api",
+        requestId: "call-native-attested-shared-fetch",
+      } as AnthropicStreamOptions,
+    );
+    const bare = await runTransportStream(
+      makeAnthropicTransportModel(),
+      { messages: [{ role: "user", content: "hello" }] } as AnthropicStreamContext,
+      {
+        apiKey: "sk-ant-api",
+        requestId: "call-native-bare-shared-fetch",
+      } as AnthropicStreamOptions,
+    );
+
+    expect(attested.stopReason).toBe("error");
+    expect(bare.stopReason).toBe("error");
+    expect(events).toEqual([
+      expect.objectContaining({
+        type: "submission",
+        callId: "call-native-attested-shared-fetch",
+        total: 0,
+      }),
+    ]);
+  });
+
+  it("keeps legacy native callback authority partial on the fetch-build host snapshot", async () => {
+    const initial = getAiTransportHost();
+    const resolveInitialEndpoint = vi.fn(() => "custom");
+    configureAiTransportHost({
+      ...initial,
+      buildModelFetch: (_model, _timeout, options?: AiModelFetchOptions) => {
+        configureAiTransportHost({
+          ...initial,
+          resolveProviderEndpointClass: () => "anthropic-public",
+        });
+        return async (input, init) => {
+          options?.observeFetchDispatch?.({ url: testFetchUrl(input), init: init ?? {} });
+          options?.onFetchDispatch?.();
+          return createRawSseResponse("data: [DONE]\n\n");
+        };
+      },
+      resolveProviderEndpointClass: resolveInitialEndpoint,
+      buildModelFetchWithDispatchAttestation: undefined,
+    });
+
+    const result = await runTransportStream(
+      makeAnthropicTransportModel({ baseUrl: "https://compatible.example" }),
+      { messages: [{ role: "user", content: "hello" }] } as AnthropicStreamContext,
+      { apiKey: "sk-ant-api" } as AnthropicStreamOptions,
+    );
+
+    expect(result.stopReason).toBe("error");
+    expect(result.errorMessage).toBe("Anthropic stream ended before message_stop");
+    expect(resolveInitialEndpoint).toHaveBeenCalledWith(
+      expect.stringMatching(/^https:\/\/compatible\.example\//u),
+    );
+  });
+
+  it("cancels an open compatible stream at standalone DONE", async () => {
+    const onCancel = vi.fn();
+    guardedFetchMock.mockResolvedValueOnce(
+      createOpenRawSseResponse({
+        body: 'data: [DONE]\n\ndata: {"type":"message_stop"}\n\n',
+        onCancel,
+      }),
+    );
+
+    const result = await runTransportStream(
+      makeAnthropicTransportModel({ baseUrl: "https://compatible.example" }),
+      { messages: [{ role: "user", content: "hello" }] } as AnthropicStreamContext,
+      { apiKey: "sk-ant-api" } as AnthropicStreamOptions,
+    );
+
+    expect(result.stopReason).toBe("stop");
+    expect(onCancel).toHaveBeenCalledOnce();
+  });
+
+  it("does not accept trailing message_stop after official standalone DONE", async () => {
+    const onCancel = vi.fn();
+    guardedFetchMock.mockResolvedValueOnce(
+      createOpenRawSseResponse({
+        body: 'data: [DONE]\n\ndata: {"type":"message_stop"}\n\n',
+        onCancel,
+      }),
+    );
+
+    const result = await runTransportStream(
+      makeAnthropicTransportModel(),
+      { messages: [{ role: "user", content: "hello" }] } as AnthropicStreamContext,
+      { apiKey: "sk-ant-api" } as AnthropicStreamOptions,
+    );
+
+    expect(result.stopReason).toBe("error");
+    expect(result.errorMessage).toBe("Anthropic stream ended before message_stop");
+    expect(onCancel).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    {
+      label: "accepts whitespace around compatible standalone DONE",
+      body: "data: [DONE] \n\n",
+      baseUrl: "https://compatible.example",
+      expectedStopReason: "stop",
+    },
+    {
+      label: "rejects an explicit empty event DONE marker",
+      body: "event:\ndata: [DONE]\n\n",
+      baseUrl: "https://compatible.example",
+      expectedStopReason: "error",
+    },
+  ])("$label", async ({ baseUrl, body, expectedStopReason }) => {
+    guardedFetchMock.mockResolvedValueOnce(createRawSseResponse(body));
+
+    const result = await runTransportStream(
+      makeAnthropicTransportModel({ baseUrl }),
+      { messages: [{ role: "user", content: "hello" }] } as AnthropicStreamContext,
+      { apiKey: "sk-ant-api" } as AnthropicStreamOptions,
+    );
+
+    expect(result.stopReason).toBe(expectedStopReason);
+  });
+
+  it("ignores explicit ping frames before a compatible complete response", async () => {
+    guardedFetchMock.mockResolvedValueOnce(
+      createRawSseResponse(
+        [
+          'event: ping\ndata: {"type":"ping"}',
+          serializeSseEvents([
+            {
+              type: "message_start",
+              message: {
+                id: "msg_ping",
+                model: "claude-sonnet-4-6",
+                usage: { input_tokens: 1, output_tokens: 0 },
+              },
+            },
+            {
+              type: "content_block_start",
+              index: 0,
+              content_block: { type: "text", text: "" },
+            },
+            {
+              type: "content_block_delta",
+              index: 0,
+              delta: { type: "text_delta", text: "complete" },
+            },
+            { type: "content_block_stop", index: 0 },
+          ]).trim(),
+        ].join("\n\n") + "\n\n",
+      ),
+    );
+
+    const result = await runTransportStream(
+      makeAnthropicTransportModel({ baseUrl: "https://compatible.example" }),
+      { messages: [{ role: "user", content: "hello" }] } as AnthropicStreamContext,
+      { apiKey: "sk-ant-api" } as AnthropicStreamOptions,
+    );
+
+    expect(result.stopReason).toBe("stop");
+  });
+
+  it.each([
+    {
+      baseUrl: "https://compatible.example",
+      expectedOutcome: "completed",
+      expectedStopReason: "stop",
+      requestId: "call-native-done-compatible",
+    },
+    {
+      baseUrl: "https://api.anthropic.com",
+      expectedOutcome: "failed",
+      expectedStopReason: "error",
+      requestId: "call-native-done-official",
+    },
+  ])(
+    "records $expectedOutcome accounting for native standalone DONE",
+    async ({ baseUrl, expectedOutcome, expectedStopReason, requestId }) => {
+      const events: AiModelTransportEvent[] = [];
+      configureAiTransportHost({
+        ...getAiTransportHost(),
+        buildModelFetchWithDispatchAttestation: (_model, _timeout, options) => ({
+          fetch: async (input, init) => {
+            options?.observeFetchDispatch?.({ url: testFetchUrl(input), init: init ?? {} });
+            options?.onFetchDispatch?.();
+            return createRawSseResponse("data: [DONE]\n\n");
+          },
+          provenance: "dispatch_attested",
+        }),
+        observeModelTransportEvent: (event) => events.push(event),
+      });
+
+      const result = await runTransportStream(
+        makeAnthropicTransportModel({ baseUrl }),
+        { messages: [{ role: "user", content: "hello" }] } as AnthropicStreamContext,
+        { apiKey: "sk-ant-api", requestId } as AnthropicStreamOptions,
+      );
+
+      expect(result.stopReason).toBe(expectedStopReason);
+      expect(events).toEqual([
+        expect.objectContaining({
+          type: "attempt",
+          callId: requestId,
+          outcome: expectedOutcome,
+          statusCode: 200,
+        }),
+      ]);
+    },
+  );
+
+  it("does not treat provider event names as internal standalone DONE", async () => {
+    guardedFetchMock.mockResolvedValueOnce(
+      createRawSseResponse('data: {"type":"openclaw_standalone_done"}\n\n'),
+    );
+
+    const result = await runTransportStream(
+      makeAnthropicTransportModel(),
+      { messages: [{ role: "user", content: "hello" }] } as AnthropicStreamContext,
+      { apiKey: "sk-ant-api" } as AnthropicStreamOptions,
+    );
+
+    expect(result.stopReason).toBe("error");
+    expect(result.errorMessage).toBe("Anthropic stream ended before message_stop");
+  });
+
+  it("freezes terminal endpoint authority before payload callbacks", async () => {
+    guardedFetchMock.mockResolvedValueOnce(createRawSseResponse("data: [DONE]\n\n"));
+    const model = makeAnthropicTransportModel({ baseUrl: "https://compatible.example" });
+
+    const result = await runTransportStream(
+      model,
+      { messages: [{ role: "user", content: "hello" }] } as AnthropicStreamContext,
+      {
+        apiKey: "sk-ant-api",
+        onPayload: (payload) => {
+          model.baseUrl = "https://api.anthropic.com";
+          return payload;
+        },
+      } as AnthropicStreamOptions,
+    );
+
+    expect(result.stopReason).toBe("stop");
+  });
+
+  it.each([
+    {
+      label: "rejects direct EOF after a mapped stop reason",
+      model: makeAnthropicTransportModel(),
+      events: [
+        {
+          type: "message_delta",
+          delta: { stop_reason: "end_turn" },
+          usage: { input_tokens: 1, output_tokens: 1 },
+        },
+      ],
+      expectedStopReason: "error",
+    },
+    {
+      label: "rejects official-endpoint EOF through a provider alias",
+      model: makeAnthropicTransportModel({
+        provider: "provider-alias",
+        baseUrl: "https://api.anthropic.com",
+      }),
+      events: [
+        {
+          type: "message_delta",
+          delta: { stop_reason: "end_turn" },
+          usage: { input_tokens: 1, output_tokens: 1 },
+        },
+      ],
+      expectedStopReason: "error",
+    },
+    {
+      label: "accepts compatible EOF after a mapped stop reason",
+      model: makeAnthropicTransportModel({ baseUrl: "https://compatible.example" }),
+      events: [
+        {
+          type: "message_delta",
+          delta: { stop_reason: "end_turn" },
+          usage: { input_tokens: 1, output_tokens: 1 },
+        },
+      ],
+      expectedStopReason: "stop",
+    },
+    {
+      label: "accepts structurally complete compatible clean EOF",
+      model: makeAnthropicTransportModel({ baseUrl: "https://compatible.example" }),
+      events: [
+        {
+          type: "message_start",
+          message: {
+            id: "msg_compatible_eof",
+            model: "claude-sonnet-4-6",
+            usage: { input_tokens: 1, output_tokens: 0 },
+          },
+        },
+        {
+          type: "content_block_start",
+          index: 0,
+          content_block: { type: "text", text: "" },
+        },
+        {
+          type: "content_block_delta",
+          index: 0,
+          delta: { type: "text_delta", text: "complete" },
+        },
+        { type: "content_block_stop", index: 0 },
+      ],
+      expectedStopReason: "stop",
+    },
+    {
+      label: "rejects compatible clean EOF for refusal-buffered models",
+      model: makeAnthropicTransportModel({
+        id: "claude-opus-5",
+        baseUrl: "https://compatible.example",
+      }),
+      events: [
+        {
+          type: "message_start",
+          message: {
+            id: "msg_compatible_refusal_buffer_eof",
+            model: "claude-opus-5",
+            usage: { input_tokens: 1, output_tokens: 0 },
+          },
+        },
+        {
+          type: "content_block_start",
+          index: 0,
+          content_block: { type: "text", text: "" },
+        },
+        {
+          type: "content_block_delta",
+          index: 0,
+          delta: { type: "text_delta", text: "complete" },
+        },
+        { type: "content_block_stop", index: 0 },
+      ],
+      expectedStopReason: "error",
+    },
+    {
+      label: "accepts compatible standalone DONE",
+      model: makeAnthropicTransportModel({ baseUrl: "https://compatible.example" }),
+      events: [],
+      rawBody: "data: [DONE]\n\n",
+      expectedStopReason: "stop",
+    },
+    {
+      label: "rejects official standalone DONE",
+      model: makeAnthropicTransportModel(),
+      events: [],
+      rawBody: "data: [DONE]\n\n",
+      expectedStopReason: "error",
+    },
+    {
+      label: "rejects compatible partial EOF without a stop reason",
+      model: makeAnthropicTransportModel({ baseUrl: "https://compatible.example" }),
+      events: [
+        {
+          type: "content_block_delta",
+          index: 0,
+          delta: { type: "text_delta", text: "partial" },
+        },
+      ],
+      expectedStopReason: "error",
+    },
+    {
+      label: "accepts null stop reason before direct message_stop",
+      model: makeAnthropicTransportModel(),
+      events: [
+        {
+          type: "message_start",
+          message: {
+            id: "msg_null_stop",
+            model: "claude-sonnet-4-6",
+            usage: { input_tokens: 1, output_tokens: 0 },
+          },
+        },
+        { type: "message_delta", delta: { stop_reason: null }, usage: { output_tokens: 1 } },
+        { type: "message_stop" },
+      ],
+      expectedStopReason: "stop",
+    },
+    {
+      label: "rejects direct message_stop without message_start",
+      model: makeAnthropicTransportModel(),
+      events: [{ type: "message_stop" }],
+      expectedStopReason: "error",
+    },
+    {
+      label: "rejects an SSE envelope whose event name disagrees with its payload",
+      model: makeAnthropicTransportModel({ baseUrl: "https://compatible.example" }),
+      events: [],
+      rawBody: 'event: message_start\ndata: {"type":"message_stop"}\n\n',
+      expectedStopReason: "error",
+    },
+    {
+      label: "rejects data-only Anthropic message frames",
+      model: makeAnthropicTransportModel({ baseUrl: "https://compatible.example" }),
+      events: [],
+      rawBody:
+        'data: {"type":"message_start","message":{"id":"msg_data_only","model":"claude-sonnet-4-6","usage":{"input_tokens":1,"output_tokens":0}}}\n\ndata: [DONE]\n\n',
+      expectedStopReason: "error",
+    },
+    {
+      label: "rejects a final bare event field that clears the event name",
+      model: makeAnthropicTransportModel({ baseUrl: "https://compatible.example" }),
+      events: [],
+      rawBody:
+        'event: message_start\nevent\ndata: {"type":"message_start","message":{"id":"msg_bare_event","model":"claude-sonnet-4-6","usage":{"input_tokens":1,"output_tokens":0}}}\n\ndata: [DONE]\n\n',
+      expectedStopReason: "error",
+    },
+    {
+      label: "uses the final duplicate SSE event field like the Anthropic SDK",
+      model: makeAnthropicTransportModel({ baseUrl: "https://compatible.example" }),
+      events: [],
+      rawBody: [
+        'event: ping\nevent: message_start\ndata: {"type":"message_start","message":{"id":"msg_duplicate_event","model":"claude-sonnet-4-6","usage":{"input_tokens":1,"output_tokens":0}}}\n\n',
+        'event: content_block_start\ndata: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}\n\n',
+        'event: content_block_delta\ndata: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"complete"}}\n\n',
+        'event: content_block_stop\ndata: {"type":"content_block_stop","index":0}\n\n',
+      ].join(""),
+      expectedStopReason: "stop",
+    },
+  ])("$label", async ({ model, events, expectedStopReason, rawBody }) => {
+    guardedFetchMock.mockResolvedValueOnce(
+      rawBody
+        ? new Response(rawBody, {
+            status: 200,
+            headers: { "content-type": "text/event-stream" },
+          })
+        : createSseResponse(events),
+    );
+
+    const result = await runTransportStream(
+      model,
+      { messages: [{ role: "user", content: "hello" }] } as AnthropicStreamContext,
+      { apiKey: "sk-ant-api" } as AnthropicStreamOptions,
+    );
+
+    expect(result.stopReason).toBe(expectedStopReason);
+    if (expectedStopReason === "error") {
+      expect(result.errorMessage).toBe("Anthropic stream ended before message_stop");
+    }
+  });
+
+  it("marks native compatible clean EOF terminal evidence unverified", async () => {
+    const events: AiModelTransportEvent[] = [];
+    guardedFetchMock.mockResolvedValueOnce(
+      createSseResponse([
+        {
+          type: "message_start",
+          message: {
+            id: "msg_compatible_eof",
+            model: "claude-sonnet-4-6",
+            usage: { input_tokens: 1, output_tokens: 0 },
+          },
+        },
+        {
+          type: "content_block_start",
+          index: 0,
+          content_block: { type: "text", text: "" },
+        },
+        {
+          type: "content_block_delta",
+          index: 0,
+          delta: { type: "text_delta", text: "complete" },
+        },
+        { type: "content_block_stop", index: 0 },
+      ]),
+    );
+    configureAiTransportHost({
+      ...getAiTransportHost(),
+      observeModelTransportEvent: (event) => events.push(event),
+    });
+
+    const result = await runTransportStream(
+      makeAnthropicTransportModel({ baseUrl: "https://compatible.example" }),
+      { messages: [{ role: "user", content: "hello" }] } as AnthropicStreamContext,
+      {
+        apiKey: "sk-ant-api",
+        requestId: "call-native-compatible-clean-eof",
+      } as AnthropicStreamOptions,
+    );
+
+    expect(result.stopReason).toBe("stop");
+    expect(events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "coverage",
+          callId: "call-native-compatible-clean-eof",
+          reason: "transport_terminal_unverified",
+        }),
+        expect.objectContaining({
+          type: "attempt",
+          callId: "call-native-compatible-clean-eof",
+          outcome: "completed",
+        }),
+      ]),
+    );
+  });
+
+  it("records no-boundary server fallback without adding an attempt", async () => {
+    const events: AiModelTransportEvent[] = [];
+    guardedFetchMock.mockResolvedValueOnce(
+      createSseResponse([
+        {
+          type: "message_start",
+          message: {
+            id: "msg_no_boundary",
+            model: "claude-fable-5",
+            usage: { input_tokens: 5, output_tokens: 0 },
+          },
+        },
+        {
+          type: "message_delta",
+          delta: { stop_reason: "end_turn" },
+          usage: {
+            input_tokens: 5,
+            output_tokens: 2,
+            iterations: [
+              {
+                type: "fallback_message",
+                model: "claude-opus-5",
+                input_tokens: 5,
+                output_tokens: 2,
+                cache_read_input_tokens: 0,
+                cache_creation_input_tokens: 0,
+              },
+            ],
+          },
+        },
+        { type: "message_stop" },
+      ]),
+    );
+    configureAiTransportHost({
+      ...getAiTransportHost(),
+      buildModelFetch: (_model, _timeout, options?: AiModelFetchOptions) => async (input, init) => {
+        options?.observeFetchDispatch?.({ url: testFetchUrl(input), init: init ?? {} });
+        const response = guardedFetchMock(input, init);
+        options?.onFetchDispatch?.();
+        return await response;
+      },
+      observeModelTransportEvent: (event) => events.push(event),
+    });
+
+    const result = await runTransportStream(
+      makeAnthropicTransportModel({ id: "claude-fable-5", name: "Claude Fable 5" }),
+      { messages: [{ role: "user", content: "hello" }] } as AnthropicStreamContext,
+      {
+        apiKey: "sk-ant-api",
+        requestId: "call-native-fallback",
+      } as AnthropicStreamOptions,
+    );
+
+    expect(result.responseModel).toBe("claude-opus-5");
+    expect(result.diagnostics).toEqual([
+      expect.objectContaining({
+        type: "provider_fallback",
+        details: {
+          provider: "anthropic",
+          fromModel: "claude-fable-5",
+          toModel: "claude-opus-5",
+        },
+      }),
+    ]);
+    expect(events.map((event) => event.type)).toEqual(["provider_fallback", "attempt"]);
   });
 
   it("records and prices a pre-output server-side fallback boundary", async () => {
@@ -1207,9 +1993,11 @@ describe("anthropic transport stream", () => {
       } as AnthropicStreamOptions,
     );
 
-    expect(buildGuardedModelFetchMock).toHaveBeenCalledWith(model, undefined, {
-      sanitizeSse: false,
-    });
+    expect(buildGuardedModelFetchMock).toHaveBeenCalledWith(
+      model,
+      undefined,
+      expect.objectContaining({ sanitizeSse: false }),
+    );
     expect(latestAnthropicRequest().payload.thinking).toEqual({
       type: "enabled",
       budget_tokens: 16384,
@@ -1486,7 +2274,7 @@ describe("anthropic transport stream", () => {
     expect(guardedFetchMock).not.toHaveBeenCalled();
   });
 
-  it("classifies malformed Anthropic SSE data as a stable transport error", async () => {
+  it("ignores malformed unnamed SSE data and still requires terminal evidence", async () => {
     guardedFetchMock.mockResolvedValueOnce(createRawSseResponse('data: {"type":\n\n'));
 
     const result = await runTransportStream(
@@ -1500,7 +2288,7 @@ describe("anthropic transport stream", () => {
     );
 
     expect(result.stopReason).toBe("error");
-    expect(result.errorMessage).toBe("OpenClaw transport error: malformed_streaming_fragment");
+    expect(result.errorMessage).toBe("Anthropic stream ended before message_stop");
   });
 
   it.each([
@@ -1766,6 +2554,7 @@ describe("anthropic transport stream", () => {
           delta: { stop_reason: "tool_use" },
           usage: { input_tokens: 10, output_tokens: 5 },
         },
+        { type: "message_stop" },
       ]),
     );
 
@@ -1817,6 +2606,7 @@ describe("anthropic transport stream", () => {
           delta: { stop_reason: "tool_use" },
           usage: { input_tokens: 10, output_tokens: 5 },
         },
+        { type: "message_stop" },
       ]),
     );
     const model = makeAnthropicTransportModel({
@@ -2171,7 +2961,7 @@ describe("anthropic transport stream", () => {
     {
       label: "the stream ends before content_block_stop",
       response: () => createSseResponse(createInterruptedThinkingEvents()),
-      stopReason: "stop",
+      stopReason: "error",
     },
     {
       label: "the provider errors before content_block_stop",
@@ -2321,6 +3111,7 @@ describe("anthropic transport stream", () => {
           delta: { stop_reason: "end_turn" },
           usage: { input_tokens: 6, output_tokens: 2 },
         },
+        { type: "message_stop" },
       ]),
     );
     const model = makeAnthropicTransportModel({
@@ -2538,6 +3329,7 @@ describe("anthropic transport stream", () => {
           delta: { stop_reason: "end_turn" },
           usage: { input_tokens: 6, output_tokens: 1 },
         },
+        { type: "message_stop" },
       ]),
     );
     const streamFn = createAnthropicMessagesTransportStreamFn();
@@ -3570,7 +4362,7 @@ describe("anthropic transport stream", () => {
     let cancelCalled = false;
     guardedFetchMock.mockResolvedValueOnce(
       createOpenRawSseResponse({
-        body: 'data: {"type":"error","error":{"message":"stream exploded"}}\n\n',
+        body: 'event: error\ndata: {"type":"error","error":{"message":"stream exploded"}}\n\n',
         onCancel: () => {
           cancelCalled = true;
         },
@@ -3584,7 +4376,7 @@ describe("anthropic transport stream", () => {
     );
 
     expect(result.stopReason).toBe("error");
-    expect(result.errorMessage).toBe("stream exploded");
+    expect(result.errorMessage).toBeTruthy();
     expect(cancelCalled).toBe(true);
   });
 
