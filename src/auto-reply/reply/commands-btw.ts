@@ -1,5 +1,6 @@
 /** Handles /btw side-question commands against the active session context. */
 import { randomUUID } from "node:crypto";
+import { normalizeOptionalString } from "@openclaw/normalization-core/string-coerce";
 import { resolveAgentDir, resolveSessionAgentId } from "../../agents/agent-scope.js";
 import { runBtwSideQuestion } from "../../agents/btw.js";
 import { normalizeChatType } from "../../channels/chat-type.js";

@@ -1060,6 +1060,7 @@ type MessageToolOptions = {
   resolveCommandSecretRefsViaGateway?: typeof resolveCommandSecretRefsViaGateway;
   runMessageAction?: typeof runMessageAction;
   currentChannelId?: string;
+  currentSpaceId?: string;
   currentChatType?: ChatType;
   currentMessagingTarget?: string;
   messageActionTurnCapability?: string;
