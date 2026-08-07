@@ -180,9 +180,7 @@ function preparedBatchFromLowLevelInput(params: QueuedDeliveryPayload): Prepared
   if (params.preparedBatch) {
     return params.preparedBatch;
   }
-  if (!params.payloads) {
-    throw new Error("Delivery queue entry requires a prepared payload batch");
-  }
+  if (!params.payloads) throw new Error("Delivery queue entry requires a prepared payload batch");
   return createUnmodifiedPreparedOutboundBatch(params.payloads);
 }
 

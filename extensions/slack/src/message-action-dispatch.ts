@@ -81,9 +81,9 @@ export async function handleSlackMessageAction(params: {
   const { action, cfg, params: actionParams } = ctx;
   const accountId = ctx.accountId ?? undefined;
   const workspaceId = readStringParam(actionParams, "workspaceId");
-  const invoke: SlackActionInvoke = async (actionParams, actionCfg, toolContext) =>
+  const invoke: SlackActionInvoke = async (slackActionParams, actionCfg, toolContext) =>
     await invokeAction(
-      workspaceId ? { ...actionParams, workspaceId } : actionParams,
+      workspaceId ? { ...slackActionParams, workspaceId } : slackActionParams,
       actionCfg,
       toolContext,
     );
