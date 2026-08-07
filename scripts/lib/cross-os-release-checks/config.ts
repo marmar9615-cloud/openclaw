@@ -108,6 +108,7 @@ const SUPPORTED_SUITES = new Set<CrossOsSuite>([
   "dev-update",
 ]);
 const SUPPORTED_OS_IDS = new Set<CrossOsOsId>(["ubuntu", "windows", "macos"]);
+const GATEWAY_NODE_COMPAT_SUITE_FILTER = "gateway-node-compat";
 
 export const CROSS_OS_AGENT_TURN_TIMEOUT_SECONDS = parsePositiveIntegerEnv(
   "OPENCLAW_CROSS_OS_AGENT_TURN_TIMEOUT_SECONDS",
@@ -409,7 +410,7 @@ export function resolveRunnerMatrix(params: {
         }),
       ),
   );
-  if (include.length === 0) {
+  if (include.length === 0 && !suiteFilter.matchesGatewayNodeCompat) {
     throw new Error(
       `cross_os_suite_filter ${JSON.stringify(params.suiteFilter ?? "")} did not match any ${params.mode} suite.`,
     );
@@ -417,6 +418,18 @@ export function resolveRunnerMatrix(params: {
   return {
     include,
   };
+}
+
+export function shouldRunCrossOsReleaseChecks(params: {
+  mode: string;
+  ref: string;
+  suiteFilter?: string;
+}) {
+  const suites = resolveRequestedSuites(params.mode, params.ref);
+  const suiteFilter = parseCrossOsSuiteFilter(params.suiteFilter ?? "");
+  return (["ubuntu", "windows", "macos"] as const).some((osId) =>
+    suites.some((suite) => suiteFilter.matches(osId, suite)),
+  );
 }
 
 export function parseCrossOsSuiteFilter(rawFilter: string) {
@@ -427,16 +440,20 @@ export function parseCrossOsSuiteFilter(rawFilter: string) {
   if (tokens.length === 0) {
     return {
       matches: () => true,
+      matchesGatewayNodeCompat: true,
       tokens,
     };
   }
 
   const matchers = tokens.map((token) => {
+    if (token === GATEWAY_NODE_COMPAT_SUITE_FILTER) {
+      return { osId: "", suite: "", gatewayNodeCompat: true };
+    }
     if (SUPPORTED_SUITES.has(token as CrossOsSuite)) {
-      return { osId: "", suite: token as CrossOsSuite };
+      return { osId: "", suite: token as CrossOsSuite, gatewayNodeCompat: false };
     }
     if (SUPPORTED_OS_IDS.has(token as CrossOsOsId)) {
-      return { osId: token as CrossOsOsId, suite: "" };
+      return { osId: token as CrossOsOsId, suite: "", gatewayNodeCompat: false };
     }
     for (const separator of ["/", ":", "-"]) {
       const matchedOs = [...SUPPORTED_OS_IDS].find((osId) =>
@@ -449,22 +466,30 @@ export function parseCrossOsSuiteFilter(rawFilter: string) {
       if (!SUPPORTED_SUITES.has(suite as CrossOsSuite)) {
         break;
       }
-      return { osId: matchedOs, suite: suite as CrossOsSuite };
+      return { osId: matchedOs, suite: suite as CrossOsSuite, gatewayNodeCompat: false };
     }
     throw new Error(
-      `Unsupported cross_os_suite_filter token ${JSON.stringify(token)}. Use an OS id, suite id, or os/suite pair such as windows/packaged-upgrade.`,
+      `Unsupported cross_os_suite_filter token ${JSON.stringify(token)}. Use gateway-node-compat, an OS id, suite id, or os/suite pair such as windows/packaged-upgrade.`,
     );
   });
 
   return {
     matches: (osId: CrossOsOsId, suite: CrossOsSuite) =>
       matchers.some((matcher) => {
+        if (matcher.gatewayNodeCompat) {
+          return false;
+        }
         const osMatches = !matcher.osId || matcher.osId === osId;
         const suiteMatches = !matcher.suite || matcher.suite === suite;
         return osMatches && suiteMatches;
       }),
+    matchesGatewayNodeCompat: matchers.some((matcher) => matcher.gatewayNodeCompat),
     tokens,
   };
+}
+
+export function shouldRunGatewayNodeCompat(rawFilter: string) {
+  return parseCrossOsSuiteFilter(rawFilter).matchesGatewayNodeCompat;
 }
 
 function normalizeCrossOsSuiteFilterToken(token: string) {

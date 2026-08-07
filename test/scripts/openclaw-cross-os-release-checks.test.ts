@@ -95,6 +95,8 @@ import {
   resolveRequestedSuites,
   resolveRunnerMatrix,
   resolveStaticFileContentType,
+  shouldRunCrossOsReleaseChecks,
+  shouldRunGatewayNodeCompat,
   startStaticFileServer,
   trimForSummary,
   shouldExerciseManagedGatewayLifecycleAfterInstall,
@@ -1377,6 +1379,40 @@ describe("scripts/openclaw-cross-os-release-checks", () => {
       "packaged-fresh",
       "packaged-fresh",
     ]);
+  });
+
+  it("selects Gateway/node compatibility without scheduling unrelated cross-OS lanes", () => {
+    expect(shouldRunGatewayNodeCompat("")).toBe(true);
+    expect(shouldRunGatewayNodeCompat("gateway_node_compat")).toBe(true);
+    expect(shouldRunGatewayNodeCompat("windows/packaged-upgrade")).toBe(false);
+    expect(
+      shouldRunCrossOsReleaseChecks({
+        mode: "both",
+        ref: "main",
+        suiteFilter: "gateway-node-compat",
+      }),
+    ).toBe(false);
+    expect(
+      shouldRunCrossOsReleaseChecks({
+        mode: "both",
+        ref: "main",
+        suiteFilter: "windows/packaged-upgrade,gateway-node-compat",
+      }),
+    ).toBe(true);
+    expect(
+      resolveRunnerMatrix({
+        mode: "both",
+        ref: "main",
+        suiteFilter: "gateway-node-compat",
+      }),
+    ).toEqual({ include: [] });
+    expect(
+      resolveRunnerMatrix({
+        mode: "both",
+        ref: "main",
+        suiteFilter: "windows/packaged-upgrade,gateway-node-compat",
+      }).include.map((entry) => [entry.os_id, entry.suite]),
+    ).toEqual([["windows", "packaged-upgrade"]]);
   });
 
   it("rejects unsupported cross-OS suite filter tokens", () => {

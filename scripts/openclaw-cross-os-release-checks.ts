@@ -12,6 +12,8 @@ import {
   readRunnerOverrideEnv,
   resolveProviderConfig,
   resolveRunnerMatrix,
+  shouldRunCrossOsReleaseChecks,
+  shouldRunGatewayNodeCompat,
 } from "./lib/cross-os-release-checks/config.ts";
 import { prepareCandidate, readProvidedCandidate } from "./lib/cross-os-release-checks/install.ts";
 import {
@@ -50,6 +52,13 @@ function isMainModule() {
 async function main(argv: string[]) {
   const args = parseArgs(argv);
 
+  if (args["gateway-node-compat"] === "true") {
+    const { runGatewayNodeCompatProducer } =
+      await import("./lib/cross-os-release-checks/gateway-node-compat.ts");
+    await runGatewayNodeCompatProducer(args);
+    return;
+  }
+
   if (args["resolve-matrix"] === "true") {
     const mode = args["mode"] ?? "both";
     const ref = args["ref"]?.trim() || "main";
@@ -66,6 +75,22 @@ async function main(argv: string[]) {
           ...runnerOverrideEnv,
         }),
       )}\n`,
+    );
+    return;
+  }
+
+  if (args["resolve-gateway-node-compat-selection"] === "true") {
+    process.stdout.write(`${shouldRunGatewayNodeCompat(args["suite-filter"] ?? "")}\n`);
+    return;
+  }
+
+  if (args["resolve-cross-os-release-checks-selection"] === "true") {
+    process.stdout.write(
+      `${shouldRunCrossOsReleaseChecks({
+        mode: args["mode"] ?? "both",
+        ref: args["ref"]?.trim() || "main",
+        suiteFilter: args["suite-filter"],
+      })}\n`,
     );
     return;
   }
