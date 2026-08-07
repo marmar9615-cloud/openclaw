@@ -19,7 +19,9 @@ export type ProviderTransportAccountingCoverageReason =
   | "transport_event_conflict"
   | "transport_invalid_fact"
   | "transport_invalid_ordinal"
-  | "transport_logical_call_incomplete";
+  | "transport_logical_call_incomplete"
+  | "transport_terminal_unverified"
+  | "transport_endpoint_authority_partial";
 
 export type ProviderTransportAccountingCoverage =
   | { state: "complete" }
@@ -68,6 +70,7 @@ export type ProviderTransportAccountingSnapshot = {
   fallbacks: ProviderTransportTotals & {
     unsupported: number;
     connectionFailures: number;
+    submissionFailures: number;
     streamFailures: number;
     policy: number;
   };

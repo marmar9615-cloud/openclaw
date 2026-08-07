@@ -7,7 +7,10 @@ import {
   runWithProviderTransportAccountingObserver,
 } from "./provider-transport-accounting.js";
 import {
+  ANTHROPIC_ROUTE,
   emitAttempt,
+  emitZeroSubmission,
+  emitTransportSemanticCoverage,
   emitTransportFallback,
   observeMalformedTransportEvent,
   ROUTE,
@@ -15,6 +18,138 @@ import {
 } from "./provider-transport-accounting.test-support.js";
 
 describe("provider transport accounting", () => {
+  it("retains repeated retry preflight zero-submissions exactly", () => {
+    const collector = createProviderTransportAccountingCollector();
+    runWithProviderTransportAccountingObserver(collector.observer, () => {
+      startCall("call-zero-repeated");
+      emitZeroSubmission({
+        callId: "call-zero-repeated",
+        eventId: "zero-repeated-1",
+        outcome: "failed",
+      });
+      emitZeroSubmission({
+        callId: "call-zero-repeated",
+        eventId: "zero-repeated-2",
+        outcome: "failed",
+      });
+      observeProviderTransportLogicalCallSettled("call-zero-repeated", "failed");
+    });
+
+    expect(collector.project()).toMatchObject({
+      coverage: { state: "complete" },
+      snapshot: {
+        attempts: { total: 0, totalKind: "exact" },
+        zeroSubmissions: { total: 2, failed: 2, totalKind: "exact" },
+        events: { total: 2, totalKind: "exact" },
+        logicalCalls: { failed: 1, outcomeKind: "exact" },
+      },
+    });
+  });
+
+  it("allows a later physical attempt after retry preflight failures", () => {
+    const collector = createProviderTransportAccountingCollector();
+    runWithProviderTransportAccountingObserver(collector.observer, () => {
+      startCall("call-zero-then-attempt");
+      emitZeroSubmission({
+        callId: "call-zero-then-attempt",
+        eventId: "zero-before-attempt-1",
+        outcome: "failed",
+      });
+      emitZeroSubmission({
+        callId: "call-zero-then-attempt",
+        eventId: "zero-before-attempt-2",
+        outcome: "failed",
+      });
+      emitAttempt({
+        callId: "call-zero-then-attempt",
+        ordinal: 1,
+        reason: "retry",
+        outcome: "completed",
+      });
+      observeProviderTransportLogicalCallSettled("call-zero-then-attempt", "completed");
+    });
+
+    expect(collector.project()).toMatchObject({
+      coverage: { state: "complete" },
+      snapshot: {
+        attempts: { total: 1, retries: 1, totalKind: "exact" },
+        zeroSubmissions: { total: 2, failed: 2, totalKind: "exact" },
+        logicalCalls: { completed: 1, outcomeKind: "exact" },
+      },
+    });
+  });
+
+  it("preserves exact transport counters for semantic-only coverage", () => {
+    const collector = createProviderTransportAccountingCollector();
+    runWithProviderTransportAccountingObserver(collector.observer, () => {
+      startCall("call-semantic-coverage", ANTHROPIC_ROUTE);
+      emitAttempt({
+        callId: "call-semantic-coverage",
+        ordinal: 1,
+        route: ANTHROPIC_ROUTE,
+        outcome: "completed",
+      });
+      emitTransportSemanticCoverage({
+        callId: "call-semantic-coverage",
+        reason: "transport_terminal_unverified",
+      });
+      observeProviderTransportLogicalCallSettled("call-semantic-coverage", "completed");
+    });
+
+    expect(collector.project()).toMatchObject({
+      coverage: {
+        state: "partial",
+        reasons: expect.arrayContaining(["transport_terminal_unverified"]),
+      },
+      snapshot: {
+        attempts: { total: 1, totalKind: "exact" },
+        providerFallbacks: { total: 0, totalKind: "exact" },
+        events: { total: 2, totalKind: "exact" },
+      },
+    });
+  });
+
+  it("accepts semantic coverage without an observable attempt as partial accounting", () => {
+    const collector = createProviderTransportAccountingCollector();
+    runWithProviderTransportAccountingObserver(collector.observer, () => {
+      startCall("call-injected-semantic-coverage", ANTHROPIC_ROUTE);
+      emitTransportSemanticCoverage({
+        callId: "call-injected-semantic-coverage",
+        eventId: "semantic-endpoint-call-injected",
+        reason: "transport_endpoint_authority_partial",
+      });
+      emitTransportSemanticCoverage({
+        callId: "call-injected-semantic-coverage",
+        eventId: "semantic-terminal-call-injected",
+        reason: "transport_terminal_unverified",
+      });
+      observeProviderTransportLogicalCallSettled("call-injected-semantic-coverage", "completed");
+    });
+
+    const projection = collector.project();
+    expect(projection).toMatchObject({
+      coverage: {
+        state: "partial",
+        reasons: [
+          "transport_endpoint_authority_partial",
+          "transport_terminal_unverified",
+          "transport_totals_lower_bound",
+        ],
+      },
+      snapshot: {
+        logicalCalls: {
+          completed: 1,
+          entries: [{ transport: "sse", outcome: "completed" }],
+        },
+        attempts: { total: 0, totalKind: "lower_bound" },
+        events: { total: 2, totalKind: "exact" },
+      },
+    });
+    expect(projection.coverage).not.toMatchObject({
+      reasons: expect.arrayContaining(["not_instrumented", "transport_event_conflict"]),
+    });
+  });
+
   it("isolates concurrent collectors", async () => {
     const first = createProviderTransportAccountingCollector();
     const second = createProviderTransportAccountingCollector();
@@ -289,6 +424,10 @@ describe("provider transport accounting", () => {
     });
 
     expect(collector.project()).toMatchObject({
+      coverage: {
+        state: "partial",
+        reasons: expect.arrayContaining(["transport_invalid_ordinal"]),
+      },
       snapshot: {
         logicalCalls: { entries: [{ transport: "http", outcome: "completed" }] },
         attempts: { total: 1, totalKind: "exact" },
@@ -615,12 +754,30 @@ describe("provider transport accounting", () => {
       observeProviderTransportLogicalCallSettled("call-event-details", "failed");
     });
 
-    expect(collector.project()).toMatchObject({
+    const projection = collector.project();
+    expect(projection).toMatchObject({
+      coverage: {
+        state: "partial",
+        reasons: expect.arrayContaining(["transport_details_truncated"]),
+      },
       snapshot: {
-        attempts: { total: 129, totalKind: "exact" },
-        events: { total: 129, totalKind: "exact", entriesTruncated: true },
+        attempts: {
+          total: 129,
+          totalKind: "exact",
+          initial: 1,
+          retries: 128,
+          authRecoveries: 0,
+          payloadRecoveries: 0,
+          transportFallbacks: 0,
+        },
+        events: {
+          total: 129,
+          totalKind: "exact",
+          entriesTruncated: true,
+        },
       },
     });
+    expect(projection.snapshot?.events.entries).toHaveLength(128);
   });
 
   it("bounds event identities without lowering retained call outcomes", () => {

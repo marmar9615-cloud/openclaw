@@ -18,10 +18,10 @@ export type ProviderTransportAggregateLowerBoundKey =
   | "providerFallbacks"
   | "zeroSubmissions";
 
-export function providerTransportAggregateKeyForEventType(
-  type: AiModelTransportEvent["type"],
-): ProviderTransportAggregateLowerBoundKey {
-  switch (type) {
+export function providerTransportAggregateKeyForEvent(
+  event: AiModelTransportEvent,
+): ProviderTransportAggregateLowerBoundKey | undefined {
+  switch (event.type) {
     case "attempt":
       return "attempts";
     case "connection":
@@ -31,11 +31,11 @@ export function providerTransportAggregateKeyForEventType(
     case "provider_fallback":
       return "providerFallbacks";
     case "coverage":
-      return "providerFallbacks";
+      return event.scope === "provider_fallbacks" ? "providerFallbacks" : undefined;
     case "submission":
       return "zeroSubmissions";
     default: {
-      const exhaustive: never = type;
+      const exhaustive: never = event;
       return exhaustive;
     }
   }
@@ -49,6 +49,10 @@ export type ProviderTransportProjectionCall = {
   currentTransport?: string;
   currentServingModel?: string;
   nextConnectionOrdinal: number;
+  fallbackCause?: {
+    transport: string;
+    reason: "connection_failure" | "stream_failure";
+  };
   lastAttempt?: {
     ordinal: number;
     transport: string;
@@ -62,7 +66,7 @@ export type ProviderTransportProjectionCall = {
     expectedAttemptReason: "initial" | "same_route" | "transport_fallback";
   };
   pendingTransportTarget?: string;
-  zeroSubmissionOutcome?: "failed" | "aborted";
+  latestZeroSubmissionOutcome?: "failed" | "aborted";
   logicalOutcome?: AiModelTransportOutcome;
   pendingSettlementOutcome?: AiModelTransportOutcome;
   settledOutcome?: AiModelTransportOutcome;
@@ -72,7 +76,14 @@ export type ProviderTransportProjectionCall = {
 
 export type ProviderTransportProjectionState = {
   logicalCalls: Map<string, ProviderTransportProjectionCall>;
-  eventFingerprints: Map<string, { fingerprint: string; type: AiModelTransportEvent["type"] }>;
+  eventFingerprints: Map<
+    string,
+    {
+      aggregateKey?: ProviderTransportAggregateLowerBoundKey;
+      fingerprint: string;
+      type: AiModelTransportEvent["type"];
+    }
+  >;
   aggregate: {
     attempts: Omit<ProviderTransportAccountingSnapshot["attempts"], "totalKind">;
     connections: Omit<ProviderTransportAccountingSnapshot["connections"], "totalKind">;
@@ -93,11 +104,43 @@ export type ProviderTransportProjectionState = {
     zeroSubmissions: boolean;
     events: boolean;
   };
-  activeEventType?: AiModelTransportEvent["type"];
+  activeAggregateKey?: ProviderTransportAggregateLowerBoundKey;
   callDetailsTruncated: boolean;
   eventDetailsTruncated: boolean;
   issues: Set<ProviderTransportAccountingCoverageReason>;
 };
+
+export function lowerMissingTransportFallbackCause(
+  event: Extract<AiModelTransportEvent, { type: "fallback" }>,
+  state: ProviderTransportProjectionState,
+): void {
+  const aggregate =
+    event.reason === "connection_failure"
+      ? "connections"
+      : event.reason === "stream_failure"
+        ? "attempts"
+        : undefined;
+  if (aggregate) {
+    state.aggregateLowerBounds[aggregate] = true;
+    state.issues.add("transport_totals_lower_bound");
+  }
+}
+
+export function countProviderTransportFallback(
+  event: Extract<AiModelTransportEvent, { type: "fallback" }>,
+  state: ProviderTransportProjectionState,
+): void {
+  state.aggregate.fallbacks.total += 1;
+  const key =
+    event.reason === "connection_failure"
+      ? "connectionFailures"
+      : event.reason === "submission_failure"
+        ? "submissionFailures"
+        : event.reason === "stream_failure"
+          ? "streamFailures"
+          : event.reason;
+  state.aggregate.fallbacks[key] += 1;
+}
 
 export function retainProviderTransportEventDetail(
   event: AiModelTransportEvent,
@@ -162,7 +205,7 @@ function projectLogicalCall(call: ProviderTransportProjectionCall): ProviderTran
 }
 
 function callHasMissingAttemptEventEvidence(call: ProviderTransportProjectionCall): boolean {
-  if (call.zeroSubmissionOutcome) {
+  if (call.latestZeroSubmissionOutcome) {
     return false;
   }
   const hasServerSubmissionWithoutTerminalAttempt = call.phase?.submissionEvidence === true;
@@ -206,7 +249,8 @@ export function projectProviderTransportAccounting(state: ProviderTransportProje
     hasCallWithoutAcceptedTransportEvent ||
     missingAttemptEventEvidence ||
     calls.some(
-      (call) => !call.zeroSubmissionOutcome && (!call.lastAttempt || call.pendingTransportTarget),
+      (call) =>
+        !call.latestZeroSubmissionOutcome && (!call.lastAttempt || call.pendingTransportTarget),
     );
   const connectionsLowerBound =
     state.aggregateLowerBounds.connections || hasCallWithoutAcceptedTransportEvent;
