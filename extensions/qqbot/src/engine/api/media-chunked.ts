@@ -481,18 +481,19 @@ async function readPart(input: ChunkedInput, offset: number, length: number): Pr
 }
 
 async function resolveChunkedImageFileName(input: ChunkedInput): Promise<string> {
+  const fileName = input.fileName.split(/[/\\]/).pop() || input.fileName;
   const contentType = await detectMime({
     buffer: await readPart(input, 0, Math.min(input.size, IMAGE_MIME_SNIFF_BYTES)),
   });
-  if (!contentType?.startsWith("image/") || mimeTypeFromFilePath(input.fileName) === contentType) {
-    return input.fileName;
+  if (!contentType?.startsWith("image/") || mimeTypeFromFilePath(fileName) === contentType) {
+    return fileName;
   }
   const extension = extensionForMime(contentType);
   if (!extension) {
-    return input.fileName;
+    return fileName;
   }
-  const parsed = nodePath.parse(input.fileName);
-  return nodePath.format({ name: parsed.name || input.fileName, ext: extension });
+  const parsed = nodePath.parse(fileName);
+  return nodePath.format({ name: parsed.name || fileName, ext: extension });
 }
 
 // ============ Hash computation ============

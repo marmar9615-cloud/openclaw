@@ -429,6 +429,8 @@ describe("media-chunked: ChunkedMediaApi.uploadChunked", () => {
       storedName: "queued.webp",
       expectedName: "queued.png",
       bytes: IMAGE_FIXTURE_BUFFER,
+      sourceKind: "localPath",
+      fileNameOverride: undefined,
     },
     {
       label: "matching mixed-case PNG alias",
@@ -436,6 +438,8 @@ describe("media-chunked: ChunkedMediaApi.uploadChunked", () => {
       storedName: "queued.PNG",
       expectedName: "queued.PNG",
       bytes: IMAGE_FIXTURE_BUFFER,
+      sourceKind: "localPath",
+      fileNameOverride: undefined,
     },
     {
       label: "unknown image bytes",
@@ -443,6 +447,8 @@ describe("media-chunked: ChunkedMediaApi.uploadChunked", () => {
       storedName: "queued.webp",
       expectedName: "queued.webp",
       bytes: FIXTURE_BUFFER,
+      sourceKind: "localPath",
+      fileNameOverride: undefined,
     },
     {
       label: "non-image upload",
@@ -450,14 +456,28 @@ describe("media-chunked: ChunkedMediaApi.uploadChunked", () => {
       storedName: "queued.webp",
       expectedName: "queued.webp",
       bytes: IMAGE_FIXTURE_BUFFER,
+      sourceKind: "localPath",
+      fileNameOverride: undefined,
+    },
+    {
+      label: "Windows-style buffer override",
+      fileType: MediaFileType.IMAGE,
+      storedName: "buffer.webp",
+      expectedName: "transparent.png",
+      bytes: IMAGE_FIXTURE_BUFFER,
+      sourceKind: "buffer",
+      fileNameOverride: String.raw`C:\images\transparent.webp`,
     },
   ])(
     "reconciles chunked image filenames without changing source custody: $label",
-    async ({ fileType, storedName, expectedName, bytes }) => {
+    async ({ fileType, storedName, expectedName, bytes, sourceKind, fileNameOverride }) => {
       const tmp = tempDirs.make("chunked-image-name-");
       const filePath = path.join(tmp, storedName);
       await fs.promises.writeFile(filePath, bytes);
-      const source = await normalizeSource({ localPath: filePath }, { maxSize: 1024 * 1024 });
+      const source =
+        sourceKind === "buffer"
+          ? ({ kind: "buffer", buffer: bytes, fileName: storedName } as const)
+          : await normalizeSource({ localPath: filePath }, { maxSize: 1024 * 1024 });
       try {
         const client = mockApiClient();
         const fetchSpy = stubFetchOk();
@@ -481,6 +501,7 @@ describe("media-chunked: ChunkedMediaApi.uploadChunked", () => {
           fileType,
           source,
           creds: { appId: "a", clientSecret: "s" },
+          fileName: fileNameOverride,
         });
 
         const prepareCall = client.request.mock.calls.find((call) =>
