@@ -29,6 +29,7 @@ type SendDurableMessageBatchRequest = {
   cfg?: unknown;
   channel?: string;
   to?: string;
+  spaceId?: string;
   threadId?: string | number | null;
   durability?: string;
   requireUnknownSendReconciliation?: boolean;
@@ -129,6 +130,26 @@ describe("durable inbound reply delivery", () => {
     expect(mocks.sendDurableMessageBatch).toHaveBeenCalledTimes(1);
     expect(latestSendDurableMessageBatchRequest().durability).toBe("best_effort");
     expect(latestSendDurableMessageBatchRequest().requireUnknownSendReconciliation).toBeUndefined();
+  });
+
+  it("carries the inbound provider workspace into durable delivery", async () => {
+    await deliverInboundReplyWithMessageSendContext({
+      cfg: {},
+      channel: "slack",
+      agentId: "main",
+      info: { kind: "final" },
+      payload: { text: "final" },
+      ctxPayload: ctxPayload({
+        OriginatingTo: "C123",
+        GroupSpace: "T123",
+      }),
+    });
+
+    expect(latestSendDurableMessageBatchRequest()).toMatchObject({
+      channel: "slack",
+      to: "C123",
+      spaceId: "T123",
+    });
   });
 
   it("uses required durability when a caller explicitly requires unknown-send reconciliation", async () => {

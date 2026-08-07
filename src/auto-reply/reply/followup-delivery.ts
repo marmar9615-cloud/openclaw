@@ -347,6 +347,7 @@ async function sendFollowupPayloads(params: {
         payload,
         channel: originatingChannel,
         to: originatingTo,
+        spaceId: turn.queued.run.groupSpace ?? undefined,
         sessionKey: turn.queued.run.sessionKey,
         accountId: turn.queued.originatingAccountId,
         requesterSenderId: turn.queued.run.senderId,

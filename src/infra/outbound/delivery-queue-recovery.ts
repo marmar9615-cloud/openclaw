@@ -306,6 +306,7 @@ function buildRecoveryDeliverParams(
     cfg,
     channel: entry.channel,
     to: entry.to,
+    spaceId: entry.spaceId,
     accountId: entry.accountId,
     ...(entry.queuePolicy !== undefined ? { queuePolicy: entry.queuePolicy } : {}),
     ...(entry.requireUnknownSendReconciliation === true
@@ -349,6 +350,7 @@ async function applyRecoveryDeliveryAdmission(params: {
     cfg: params.cfg,
     channel: params.entry.channel,
     to: params.entry.to,
+    spaceId: params.entry.spaceId,
     accountId: params.entry.accountId,
     phase: "recovery",
   });

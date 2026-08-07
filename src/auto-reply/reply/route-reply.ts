@@ -70,6 +70,8 @@ type RouteReplyParams = {
   channel: OriginatingChannelType;
   /** The destination chat/channel/user ID. */
   to: string;
+  /** Provider-native space/workspace that owns the destination. */
+  spaceId?: string;
   /** Session key for deriving agent identity defaults (multi-agent). */
   sessionKey?: string;
   /** Session key for policy resolution when native-command delivery targets a different session. */
@@ -328,6 +330,7 @@ export async function routeReply(params: RouteReplyParams): Promise<RouteReplyRe
       cfg,
       channel: channelId,
       to,
+      spaceId: params.spaceId,
       accountId: accountId ?? undefined,
       payloads: [deliveryPayload],
       replyPayloadSendingHook: {

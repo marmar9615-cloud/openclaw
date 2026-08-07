@@ -74,6 +74,7 @@ export async function deliverOutboundPayloadsCore(
       cfg,
       channel,
       to,
+      spaceId: params.spaceId,
       deps,
       accountId,
       replyToId: params.replyToId,

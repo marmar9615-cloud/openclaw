@@ -76,6 +76,7 @@ function buildLegacyPreparationParams(entry: LegacyQueuedDelivery, cfg: OpenClaw
     cfg,
     channel: entry.channel,
     to: entry.to,
+    spaceId: entry.spaceId,
     accountId: entry.accountId,
     queuePolicy: entry.queuePolicy,
     requireUnknownSendReconciliation: entry.requireUnknownSendReconciliation,

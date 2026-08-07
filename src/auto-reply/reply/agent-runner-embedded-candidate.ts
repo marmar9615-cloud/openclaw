@@ -152,6 +152,7 @@ export async function runEmbeddedFallbackCandidate(params: {
           requesterSenderId: senderContext.senderId,
           toolContext: {
             currentChannelId: embeddedContext.currentChannelId,
+            currentSpaceId: normalizeOptionalString(turn.sessionCtx.GroupSpace),
             currentChatType: embeddedContext.chatType,
             currentMessagingTarget: embeddedContext.currentMessagingTarget,
             currentGraphChannelId: embeddedContext.currentGraphChannelId,

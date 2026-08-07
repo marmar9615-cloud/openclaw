@@ -74,7 +74,12 @@ import {
   SLACK_CHANNEL,
   slackConfigAdapter,
 } from "./shared.js";
-import { canonicalizeSlackApiTargetId, parseSlackTarget } from "./target-parsing.js";
+import {
+  canonicalizeSlackApiTargetId,
+  formatSlackWorkspaceTarget,
+  normalizeSlackWorkspaceId,
+  parseSlackTarget,
+} from "./target-parsing.js";
 import { slackContextTargetsMatch } from "./targets.js";
 import { normalizeSlackThreadTsCandidate, resolveSlackThreadTsValue } from "./thread-ts.js";
 import { buildSlackThreadingToolContext } from "./threading-tool-context.js";
@@ -182,6 +187,8 @@ const loadSlackDirectoryLiveModule = createLazyRuntimeModule(() => import("./dir
 async function resolveSlackSendContext(params: {
   cfg: Parameters<typeof resolveSlackAccount>[0]["cfg"];
   accountId?: string;
+  to: string;
+  spaceId?: string;
   deps?: { [channelId: string]: unknown };
   replyToId?: string | number | null;
   threadId?: string | number | null;
@@ -190,7 +197,17 @@ async function resolveSlackSendContext(params: {
   // expected to be resolved from this snapshot. Strict mode
   // is intentional so boot-time misconfigurations surface loudly. See #68237.
   const account = resolveSlackAccount({ cfg: params.cfg, accountId: params.accountId });
-  assertSlackDirectSendAllowed(account);
+  const targetWorkspaceId = parseSlackTarget(params.to)?.workspaceId;
+  const workspaceIds = new Set(
+    [params.spaceId, targetWorkspaceId]
+      .map((workspaceId) => normalizeSlackWorkspaceId(workspaceId))
+      .filter((workspaceId): workspaceId is string => Boolean(workspaceId)),
+  );
+  if (workspaceIds.size > 1) {
+    throw new Error("conflicting_enterprise_slack_workspace");
+  }
+  const workspaceId = workspaceIds.values().next().value as string | undefined;
+  assertSlackDirectSendAllowed(account, workspaceId);
   const send =
     resolveOutboundSendDep<SlackSendFn>(params.deps, "slack") ??
     (await loadSlackSendRuntime()).sendMessageSlack;
@@ -198,7 +215,7 @@ async function resolveSlackSendContext(params: {
   const botToken = account.botToken?.trim();
   const tokenOverride = token && token !== botToken ? token : undefined;
   const threadTsValue = resolveSlackThreadTsValue(params);
-  return { send, threadTsValue, tokenOverride };
+  return { send, threadTsValue, tokenOverride, workspaceId };
 }
 
 async function setSlackHeartbeatThreadStatus(params: {
@@ -214,13 +231,16 @@ async function setSlackHeartbeatThreadStatus(params: {
     return;
   }
   const account = resolveSlackAccount({ cfg: params.cfg, accountId: params.accountId });
-  assertSlackDirectSendAllowed(account);
+  assertSlackDirectSendAllowed(account, target.workspaceId);
   const botToken = normalizeOptionalString(account.botToken);
   if (!botToken) {
     return;
   }
   try {
-    const client = createSlackWebClient(botToken);
+    const client = createSlackWebClient(
+      botToken,
+      target.workspaceId ? { teamId: target.workspaceId } : {},
+    );
     const apiTargetId = canonicalizeSlackApiTargetId(target.kind, target.id, params.to);
     const channelId =
       target.kind === "channel"
@@ -248,6 +268,7 @@ function withSlackSendOverride(params: {
   deps?: { [channelId: string]: unknown } | null;
   send: SlackSendFn;
   tokenOverride?: string;
+  workspaceId?: string;
   deliveryQueueId?: string;
   onPlatformSendDispatch?: () => Promise<void>;
 }) {
@@ -261,6 +282,7 @@ function withSlackSendOverride(params: {
       await params.send(to, text, {
         ...opts,
         ...(params.tokenOverride ? { token: params.tokenOverride } : {}),
+        ...(params.workspaceId ? { workspaceId: params.workspaceId } : {}),
         ...(params.deliveryQueueId ? { deliveryQueueId: params.deliveryQueueId } : {}),
         ...(params.onPlatformSendDispatch
           ? { onPlatformSendDispatch: params.onPlatformSendDispatch }
@@ -275,7 +297,9 @@ function resolveSlackRouteTarget(raw: string) {
     return null;
   }
   return {
-    to: target.id,
+    to: target.workspaceId
+      ? formatSlackWorkspaceTarget(target.workspaceId, `${target.kind}:${target.id}`)
+      : target.id,
     chatType: target.kind === "user" ? ("direct" as const) : ("channel" as const),
   };
 }
@@ -498,9 +522,11 @@ const slackChannelOutbound: ChannelOutboundAdapter = {
     },
   }),
   sendPayload: async (ctx) => {
-    const { send, threadTsValue, tokenOverride } = await resolveSlackSendContext({
+    const { send, threadTsValue, tokenOverride, workspaceId } = await resolveSlackSendContext({
       cfg: ctx.cfg,
       accountId: ctx.accountId ?? undefined,
+      to: ctx.to,
+      spaceId: ctx.spaceId,
       deps: ctx.deps,
       replyToId: ctx.replyToId,
       threadId: ctx.threadId,
@@ -516,13 +542,16 @@ const slackChannelOutbound: ChannelOutboundAdapter = {
         deps: ctx.deps,
         send,
         tokenOverride,
+        workspaceId,
       }),
     });
   },
   sendText: async (ctx) => {
-    const { send, threadTsValue, tokenOverride } = await resolveSlackSendContext({
+    const { send, threadTsValue, tokenOverride, workspaceId } = await resolveSlackSendContext({
       cfg: ctx.cfg,
       accountId: ctx.accountId ?? undefined,
+      to: ctx.to,
+      spaceId: ctx.spaceId,
       deps: ctx.deps,
       replyToId: ctx.replyToId,
       threadId: ctx.threadId,
@@ -538,15 +567,18 @@ const slackChannelOutbound: ChannelOutboundAdapter = {
         deps: ctx.deps,
         send,
         tokenOverride,
+        workspaceId,
         deliveryQueueId: ctx.deliveryQueueId,
         onPlatformSendDispatch: ctx.onPlatformSendDispatch,
       }),
     });
   },
   sendMedia: async (ctx) => {
-    const { send, threadTsValue, tokenOverride } = await resolveSlackSendContext({
+    const { send, threadTsValue, tokenOverride, workspaceId } = await resolveSlackSendContext({
       cfg: ctx.cfg,
       accountId: ctx.accountId ?? undefined,
+      to: ctx.to,
+      spaceId: ctx.spaceId,
       deps: ctx.deps,
       replyToId: ctx.replyToId,
       threadId: ctx.threadId,
@@ -562,6 +594,7 @@ const slackChannelOutbound: ChannelOutboundAdapter = {
         deps: ctx.deps,
         send,
         tokenOverride,
+        workspaceId,
         onPlatformSendDispatch: ctx.onPlatformSendDispatch,
       }),
     });
@@ -595,15 +628,34 @@ const slackMessageAdapter = {
       ...slackMessageAdapterBase.durableFinal?.capabilities,
       reconcileUnknownSend: true,
     },
-    admitDeferredDelivery: ({ cfg, accountId }) => {
+    admitDeferredDelivery: ({ cfg, accountId, spaceId, to }) => {
       const effectiveAccountId =
         normalizeOptionalString(accountId) ?? resolveDefaultSlackAccountId(cfg);
-      return mergeSlackAccountConfig(cfg, effectiveAccountId).enterpriseOrgInstall === true
-        ? {
-            status: "permanent_rejection" as const,
-            reason: "unsupported_enterprise_slack_delivery",
-          }
-        : { status: "allowed" as const };
+      if (mergeSlackAccountConfig(cfg, effectiveAccountId).enterpriseOrgInstall !== true) {
+        return { status: "allowed" as const };
+      }
+      try {
+        const targetWorkspaceId = parseSlackTarget(to)?.workspaceId;
+        const workspaceIds = new Set(
+          [spaceId, targetWorkspaceId]
+            .map((workspaceId) => normalizeSlackWorkspaceId(workspaceId))
+            .filter((workspaceId): workspaceId is string => Boolean(workspaceId)),
+        );
+        return workspaceIds.size === 1
+          ? { status: "allowed" as const }
+          : {
+              status: "permanent_rejection" as const,
+              reason:
+                workspaceIds.size === 0
+                  ? "missing_enterprise_slack_workspace"
+                  : "conflicting_enterprise_slack_workspace",
+            };
+      } catch {
+        return {
+          status: "permanent_rejection" as const,
+          reason: "invalid_enterprise_slack_workspace",
+        };
+      }
     },
     reconcileUnknownSendKinds: { text: true },
     reconcileUnknownSend: async (ctx) =>
@@ -682,7 +734,7 @@ export const slackPlugin: ChannelPlugin<ResolvedSlackAccount, SlackProbe> = crea
       },
       targetResolver: {
         looksLikeId: looksLikeSlackTargetId,
-        hint: "<channelId|user:ID|channel:ID>",
+        hint: "<channelId|user:ID|channel:ID|workspace:WORKSPACE_ID:channel:CHANNEL_ID>",
         resolveTarget: async ({ input }) => {
           const parsed = resolveSlackRouteTarget(input);
           if (!parsed) {

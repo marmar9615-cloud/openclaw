@@ -40,7 +40,6 @@ import {
   withSlackDnsRequestRetry,
 } from "./client-delivery.js";
 import { createSlackReadClient, createSlackTokenCacheKey, getSlackWriteClient } from "./client.js";
-import { assertSlackDirectSendAllowed } from "./direct-send-admission.js";
 import { chunkSlackMrkdwnText, markdownToSlackMrkdwnChunks } from "./format.js";
 import { SLACK_EDIT_TEXT_MAX_BYTES, SLACK_TEXT_LIMIT } from "./limits.js";
 import {
@@ -54,7 +53,11 @@ import {
   SLACK_QUESTION_FINALIZATION_BLOCKS,
 } from "./reply-action-ids.js";
 import { recordSlackThreadParticipation } from "./sent-thread-cache.js";
-import { canonicalizeSlackApiTargetId, parseSlackTarget } from "./target-parsing.js";
+import {
+  canonicalizeSlackApiTargetId,
+  normalizeSlackWorkspaceId,
+  parseSlackTarget,
+} from "./target-parsing.js";
 import { normalizeSlackThreadTsCandidate, resolveSlackThreadTsValue } from "./thread-ts.js";
 import { truncateSlackText, truncateSlackTextByUtf8Bytes } from "./truncate.js";
 const SLACK_DM_CHANNEL_CACHE_MAX = 1024;
@@ -108,6 +111,8 @@ type SlackSendOpts = {
   cfg: OpenClawConfig;
   token?: string;
   accountId?: string;
+  /** Enterprise Grid workspace that owns the destination. */
+  workspaceId?: string;
   mediaUrl?: string;
   mediaAccess?: {
     localRoots?: readonly string[];
@@ -376,29 +381,47 @@ function parseEnterpriseEventRecipient(raw: string): SlackRecipient {
   return { kind: "channel", id: canonicalizeSlackApiTargetId("channel", match[1]) };
 }
 
-function resolveEnterpriseEventScope(params: {
+function resolveEnterpriseDeliveryScope(params: {
   account: ReturnType<typeof resolveSlackAccount>;
   opts: SlackSendOpts;
-}): SlackEnterpriseEventScope | undefined {
-  const scope = params.opts.enterpriseEventScope;
-  if (!scope) {
-    assertSlackDirectSendAllowed(params.account);
-    return undefined;
-  }
-  if (params.account.config.enterpriseOrgInstall !== true) {
+  to: string;
+}): { teamId: string; eventScope?: SlackEnterpriseEventScope } | undefined {
+  const eventScope = params.opts.enterpriseEventScope;
+  if (eventScope && params.account.config.enterpriseOrgInstall !== true) {
     throw new Error("unexpected_enterprise_slack_listener_scope");
   }
-  if (
-    !scope.isEnterpriseInstall ||
-    !normalizeOptionalString(scope.apiAppId) ||
-    !normalizeOptionalString(scope.enterpriseId) ||
-    !/^T[A-Z0-9]+$/i.test(scope.teamId) ||
-    !scope.client ||
-    params.opts.client !== scope.client
-  ) {
-    throw new Error("invalid_enterprise_slack_listener_scope");
+  if (eventScope) {
+    if (
+      !eventScope.isEnterpriseInstall ||
+      !normalizeOptionalString(eventScope.apiAppId) ||
+      !normalizeOptionalString(eventScope.enterpriseId) ||
+      !normalizeSlackWorkspaceId(eventScope.teamId) ||
+      !eventScope.client ||
+      params.opts.client !== eventScope.client
+    ) {
+      throw new Error("invalid_enterprise_slack_listener_scope");
+    }
   }
-  return scope;
+  const targetWorkspaceId = parseSlackTarget(params.to)?.workspaceId;
+  const workspaceIds = new Set(
+    [eventScope?.teamId, params.opts.workspaceId, targetWorkspaceId]
+      .map((workspaceId) => normalizeSlackWorkspaceId(workspaceId))
+      .filter((workspaceId): workspaceId is string => Boolean(workspaceId)),
+  );
+  if (workspaceIds.size > 1) {
+    throw new Error("conflicting_enterprise_slack_workspace");
+  }
+  const teamId = workspaceIds.values().next().value as string | undefined;
+  if (params.account.config.enterpriseOrgInstall !== true) {
+    if (teamId) {
+      throw new Error("unexpected_enterprise_slack_workspace");
+    }
+    return undefined;
+  }
+  if (!teamId) {
+    throw new Error("unsupported_enterprise_slack_delivery");
+  }
+  return { teamId, ...(eventScope ? { eventScope } : {}) };
 }
 
 function resolveSlackTextChunkLimit(params: {
@@ -877,6 +900,34 @@ export async function reconcileSlackUnknownSend(
     cfg,
     accountId: ctx.accountId ?? undefined,
   });
+  const targetWorkspaceId = parseSlackTarget(ctx.to)?.workspaceId;
+  const workspaceIds = new Set(
+    [ctx.spaceId, targetWorkspaceId]
+      .map((workspaceId) => normalizeSlackWorkspaceId(workspaceId))
+      .filter((workspaceId): workspaceId is string => Boolean(workspaceId)),
+  );
+  if (workspaceIds.size > 1) {
+    return {
+      status: "unresolved",
+      error: "Slack queued delivery has conflicting workspace scope",
+      retryable: false,
+    };
+  }
+  const workspaceId = workspaceIds.values().next().value as string | undefined;
+  if (account.config.enterpriseOrgInstall === true && !workspaceId) {
+    return {
+      status: "unresolved",
+      error: "Slack queued Enterprise Grid delivery is missing workspaceId",
+      retryable: false,
+    };
+  }
+  if (account.config.enterpriseOrgInstall !== true && workspaceId) {
+    return {
+      status: "unresolved",
+      error: "Slack queued delivery has an unexpected Enterprise Grid workspaceId",
+      retryable: false,
+    };
+  }
   const deliveryId = createSlackDeliveryMetadataId(ctx.queueId);
   if (!deliveryId) {
     return {
@@ -903,8 +954,10 @@ export async function reconcileSlackUnknownSend(
       retryable: false,
     };
   }
-  const readClient = opts?.client ?? createSlackReadClient(readToken);
-  const writeClient = opts?.client ?? (writeToken ? getSlackWriteClient(writeToken) : undefined);
+  const clientOptions = workspaceId ? { teamId: workspaceId } : undefined;
+  const readClient = opts?.client ?? createSlackReadClient(readToken, clientOptions);
+  const writeClient =
+    opts?.client ?? (writeToken ? getSlackWriteClient(writeToken, clientOptions) : undefined);
   const payloadReplyToId = ctx.payloads[0]?.replyToId;
   const effectiveReplyToId = Object.hasOwn(ctx, "effectiveReplyToId")
     ? normalizeOptionalString(ctx.effectiveReplyToId)
@@ -993,16 +1046,8 @@ export async function sendMessageSlack(
     cfg,
     accountId: opts.accountId,
   });
-  const enterpriseEventScope = resolveEnterpriseEventScope({ account, opts });
-  const enterpriseDelivery = enterpriseEventScope
-    ? Object.freeze({
-        client: enterpriseEventScope.client,
-        teamId: enterpriseEventScope.teamId,
-        ...(enterpriseEventScope.uploadCompletionClient
-          ? { uploadCompletionClient: enterpriseEventScope.uploadCompletionClient }
-          : {}),
-      })
-    : undefined;
+  const enterpriseScope = resolveEnterpriseDeliveryScope({ account, opts, to });
+  const enterpriseEventScope = enterpriseScope?.eventScope;
   if (isSilentReplyText(normalizedMessage) && !opts.mediaUrl && !opts.blocks) {
     logVerbose("slack send: suppressed NO_REPLY token before API call");
     return {
@@ -1015,7 +1060,7 @@ export async function sendMessageSlack(
   if (!normalizedMessage && !opts.mediaUrl && !blocks) {
     throw new Error("Slack send requires text, blocks, or media");
   }
-  const token = enterpriseDelivery
+  const token = enterpriseEventScope
     ? SLACK_ENTERPRISE_LISTENER_QUEUE_CREDENTIAL
     : resolveToken({
         explicit: opts.token,
@@ -1024,7 +1069,25 @@ export async function sendMessageSlack(
         fallbackSource:
           account.identity === "user" ? account.userTokenSource : account.botTokenSource,
       });
-  const recipient = enterpriseDelivery ? parseEnterpriseEventRecipient(to) : parseRecipient(to);
+  const enterpriseDelivery = enterpriseScope
+    ? enterpriseEventScope
+      ? Object.freeze({
+          client: enterpriseEventScope.client,
+          teamId: enterpriseScope.teamId,
+          ...(enterpriseEventScope.uploadCompletionClient
+            ? { uploadCompletionClient: enterpriseEventScope.uploadCompletionClient }
+            : {}),
+        })
+      : (() => {
+          const client = getSlackWriteClient(token, { teamId: enterpriseScope.teamId });
+          return Object.freeze({
+            client,
+            teamId: enterpriseScope.teamId,
+            uploadCompletionClient: client,
+          });
+        })()
+    : undefined;
+  const recipient = enterpriseEventScope ? parseEnterpriseEventRecipient(to) : parseRecipient(to);
   const queueKey = createSlackSendQueueKey({
     accountId: account.accountId,
     token,

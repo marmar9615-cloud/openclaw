@@ -1,6 +1,11 @@
 // Slack tests cover targets plugin behavior.
 import { describe, expect, it } from "vitest";
-import { canonicalizeSlackApiTargetId, slackTargetsMatch } from "./target-parsing.js";
+import {
+  canonicalizeSlackApiTargetId,
+  formatSlackWorkspaceTarget,
+  normalizeSlackWorkspaceId,
+  slackTargetsMatch,
+} from "./target-parsing.js";
 import {
   normalizeSlackMessagingTarget,
   parseSlackTarget,
@@ -44,6 +49,30 @@ describe("parseSlackTarget", () => {
         normalized: testCase.normalized,
       });
     }
+  });
+
+  it("parses workspace-qualified channel and user targets", () => {
+    expect(parseSlackTarget("workspace:t123:channel:C456")).toEqual({
+      kind: "channel",
+      id: "C456",
+      raw: "workspace:t123:channel:C456",
+      normalized: "workspace:t123:channel:c456",
+      workspaceId: "T123",
+    });
+    expect(parseSlackTarget("team:T123:user:U456")).toEqual({
+      kind: "user",
+      id: "U456",
+      raw: "team:T123:user:U456",
+      normalized: "workspace:t123:user:u456",
+      workspaceId: "T123",
+    });
+  });
+
+  it("formats and validates workspace-qualified targets", () => {
+    expect(normalizeSlackWorkspaceId(" t123 ")).toBe("T123");
+    expect(formatSlackWorkspaceTarget("t123", "channel:C456")).toBe("workspace:T123:channel:C456");
+    expect(() => normalizeSlackWorkspaceId("E123")).toThrow(/starting with "T"/);
+    expect(() => parseSlackTarget("workspace:T123")).toThrow(/workspace-qualified targets use/);
   });
 
   it("rejects invalid @ and # targets", () => {
@@ -114,6 +143,12 @@ describe("slackTargetsMatch", () => {
 
   it("does not match different target kinds", () => {
     expect(slackTargetsMatch("user:U123", "channel:U123")).toBe(false);
+  });
+
+  it("matches an unqualified target in a workspace but separates two explicit workspaces", () => {
+    expect(slackTargetsMatch("workspace:T1:channel:C123", "channel:C123")).toBe(true);
+    expect(slackTargetsMatch("workspace:T1:channel:C123", "team:T1:channel:C123")).toBe(true);
+    expect(slackTargetsMatch("workspace:T1:channel:C123", "workspace:T2:channel:C123")).toBe(false);
   });
 });
 

@@ -33,6 +33,7 @@ export type OutboundDeliveryIntent = {
   id: string;
   channel: Exclude<OutboundChannel, "none">;
   to: string;
+  spaceId?: string;
   accountId?: string;
   queuePolicy: OutboundDeliveryQueuePolicy;
 };
@@ -120,6 +121,7 @@ export type ChannelHandlerParams = {
   cfg: OpenClawConfig;
   channel: Exclude<OutboundChannel, "none">;
   to: string;
+  spaceId?: string;
   accountId?: string;
   replyToId?: string | null;
   replyToMode?: ReplyToMode;
@@ -145,6 +147,7 @@ export type DeliverOutboundPayloadsCoreParams = {
   cfg: OpenClawConfig;
   channel: Exclude<OutboundChannel, "none">;
   to: string;
+  spaceId?: string;
   accountId?: string;
   payloads: ReplyPayload[];
   /** @internal Canonical post-policy batch used by queue recovery and physical delivery. */

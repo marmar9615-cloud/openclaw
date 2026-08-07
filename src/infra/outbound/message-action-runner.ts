@@ -1635,6 +1635,13 @@ async function handleSendAction(ctx: ResolvedActionContext): Promise<MessageActi
       cfg,
       channel,
       params,
+      spaceId:
+        readStringParam(params, "workspaceId") ??
+        (input.toolContext?.currentChannelProvider === channel &&
+        normalizeOptionalLowercaseString(accountId) ===
+          normalizeOptionalLowercaseString(input.requesterAccountId)
+          ? input.toolContext.currentSpaceId
+          : undefined),
       agentId,
       sessionKey: input.sessionKey,
       requesterAccountId: input.requesterAccountId ?? undefined,

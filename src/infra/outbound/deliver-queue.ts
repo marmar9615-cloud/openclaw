@@ -139,6 +139,7 @@ async function runOutboundDeliveryWithQueue(
       cfg: params.cfg,
       channel,
       to,
+      spaceId: params.spaceId,
       accountId: params.accountId,
       phase: "live",
     });
@@ -278,6 +279,7 @@ async function runOutboundDeliveryWithQueue(
       id: queueId,
       channel,
       to,
+      ...(params.spaceId ? { spaceId: params.spaceId } : {}),
       ...(params.accountId ? { accountId: params.accountId } : {}),
       queuePolicy,
     });

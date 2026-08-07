@@ -627,6 +627,29 @@ describe("runMessageAction core send routing", () => {
     expect(result.to).toBe("channel:C123");
   });
 
+  it("forwards the trusted current provider workspace for a same-account send", async () => {
+    const sendText = registerSlackTextPlugin();
+
+    await runMessageAction({
+      cfg: slackConfig,
+      action: "send",
+      params: {
+        channel: "slack",
+        target: "channel:C123",
+        message: "workspace-scoped",
+      },
+      requesterAccountId: "default",
+      toolContext: {
+        currentChannelProvider: "slack",
+        currentChannelId: "channel:C123",
+        currentSpaceId: "T123",
+      },
+      dryRun: false,
+    });
+
+    expect(firstMockArg(sendText, "send text")).toMatchObject({ spaceId: "T123" });
+  });
+
   it("marks explicit sends to the trusted current source conversation", async () => {
     registerSlackTextPlugin();
 

@@ -515,6 +515,7 @@ function normalizeChannelMessageSendResult(
 const createChannelOutboundContextBase = (params: ChannelHandlerParams) => ({
   cfg: params.cfg,
   to: params.to,
+  spaceId: params.spaceId,
   accountId: params.accountId,
   replyToId: params.replyToId,
   replyToIdSource: undefined,

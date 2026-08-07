@@ -11,7 +11,10 @@ import {
 
 export type SlackTargetKind = MessagingTargetKind;
 
-export type SlackTarget = MessagingTarget;
+export type SlackTarget = MessagingTarget & {
+  /** Enterprise Grid workspace that owns this Slack target. */
+  workspaceId?: string;
+};
 
 export type SlackTargetParseOptions = MessagingTargetParseOptions;
 
@@ -19,6 +22,34 @@ export type SlackTargetParseOptions = MessagingTargetParseOptions;
 // Doctor reports that ambiguity; runtime repairs only the digit-leading form.
 const SLACK_CHANNEL_API_ID_RE = /^[CDG][0-9][A-Z0-9]{7,}$/i;
 const SLACK_USER_API_ID_RE = /^[UW][A-Z0-9]{8,}$/i;
+const SLACK_WORKSPACE_ID_RE = /^T[A-Z0-9]+$/i;
+const SLACK_WORKSPACE_TARGET_RE = /^(?:workspace|team):([^:]+):(.+)$/i;
+
+export function normalizeSlackWorkspaceId(raw: string | undefined | null): string | undefined {
+  const workspaceId = raw?.trim();
+  if (!workspaceId) {
+    return undefined;
+  }
+  if (!SLACK_WORKSPACE_ID_RE.test(workspaceId)) {
+    throw new Error('Slack workspaceId must be a workspace ID starting with "T".');
+  }
+  return workspaceId.toUpperCase();
+}
+
+export function formatSlackWorkspaceTarget(workspaceId: string, target: string): string {
+  const normalizedWorkspaceId = normalizeSlackWorkspaceId(workspaceId);
+  if (!normalizedWorkspaceId) {
+    throw new Error("Slack workspaceId is required.");
+  }
+  const parsedTarget = parseSlackTarget(target);
+  if (!parsedTarget) {
+    throw new Error("Slack target is required.");
+  }
+  if (parsedTarget.workspaceId && parsedTarget.workspaceId !== normalizedWorkspaceId) {
+    throw new Error("Slack workspaceId conflicts with the workspace-qualified target.");
+  }
+  return `workspace:${normalizedWorkspaceId}:${parsedTarget.kind}:${parsedTarget.id}`;
+}
 
 function isUnambiguousSlackUserId(rawId: string): boolean {
   const id = rawId.trim();
@@ -46,6 +77,28 @@ export function parseSlackTarget(
   const trimmed = raw.trim();
   if (!trimmed) {
     return undefined;
+  }
+  const workspaceMatch = SLACK_WORKSPACE_TARGET_RE.exec(trimmed);
+  if (workspaceMatch) {
+    const workspaceId = normalizeSlackWorkspaceId(workspaceMatch[1]);
+    const nested = parseSlackTarget(workspaceMatch[2], options);
+    if (!workspaceId || !nested) {
+      throw new Error("Slack workspace-qualified targets require a workspace and target.");
+    }
+    if (nested.workspaceId && nested.workspaceId !== workspaceId) {
+      throw new Error("Nested Slack workspace-qualified targets are not supported.");
+    }
+    return {
+      ...nested,
+      raw: trimmed,
+      normalized: `workspace:${workspaceId.toLowerCase()}:${nested.normalized}`,
+      workspaceId,
+    };
+  }
+  if (/^(?:workspace|team):/i.test(trimmed)) {
+    throw new Error(
+      "Slack workspace-qualified targets use workspace:<workspaceId>:channel:<channelId> or workspace:<workspaceId>:user:<userId>.",
+    );
   }
   const userTarget = parseMentionPrefixOrAtUserTarget({
     raw: trimmed,
@@ -90,9 +143,22 @@ export function normalizeSlackMessagingTarget(raw: string): string | undefined {
 }
 
 export function slackTargetsMatch(left: string, right: string): boolean {
-  const leftTarget = normalizeSlackMessagingTarget(left);
-  const rightTarget = normalizeSlackMessagingTarget(right);
-  return Boolean(leftTarget && rightTarget && leftTarget === rightTarget);
+  const leftTarget = parseSlackTarget(left, { defaultKind: "channel" });
+  const rightTarget = parseSlackTarget(right, { defaultKind: "channel" });
+  if (!leftTarget || !rightTarget) {
+    return false;
+  }
+  if (
+    leftTarget.workspaceId &&
+    rightTarget.workspaceId &&
+    leftTarget.workspaceId !== rightTarget.workspaceId
+  ) {
+    return false;
+  }
+  return (
+    leftTarget.kind === rightTarget.kind &&
+    leftTarget.id.toLowerCase() === rightTarget.id.toLowerCase()
+  );
 }
 
 export function looksLikeSlackTargetId(raw: string): boolean {
@@ -107,6 +173,9 @@ export function looksLikeSlackTargetId(raw: string): boolean {
     return true;
   }
   if (/^slack:/i.test(trimmed)) {
+    return true;
+  }
+  if (/^(?:workspace|team):/i.test(trimmed)) {
     return true;
   }
   if (/^[@#]/.test(trimmed)) {

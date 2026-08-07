@@ -209,6 +209,7 @@ export async function deliverInboundReplyWithMessageSendContext(
     cfg: params.cfg,
     channel,
     to,
+    spaceId: params.ctxPayload.GroupSpace,
     accountId: params.accountId,
     payloads: [params.payload],
     threadId,

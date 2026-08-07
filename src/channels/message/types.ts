@@ -169,6 +169,8 @@ export type MessageSendContext<TPayload = unknown, TSendResult = unknown> = {
 export type ChannelMessageSendTextContext<TConfig = OpenClawConfig> = {
   cfg: TConfig;
   to: string;
+  /** Provider-native space/workspace that owns the destination. */
+  spaceId?: string;
   text: string;
   accountId?: string | null;
   deps?: OutboundSendDeps;
@@ -283,6 +285,7 @@ export type ChannelMessageUnknownSendContext<TConfig = OpenClawConfig> = {
   queueId: string;
   channel: string;
   to: string;
+  spaceId?: string;
   accountId?: string | null;
   enqueuedAt: number;
   retryCount: number;
@@ -323,6 +326,7 @@ export type ChannelMessageDeferredDeliveryAdmissionContext<TConfig = OpenClawCon
   cfg: TConfig;
   channel: string;
   to: string;
+  spaceId?: string;
   accountId?: string | null;
   phase: "live" | "recovery";
 };
@@ -484,6 +488,7 @@ export type DurableMessageSendIntent<TPayload = unknown> = {
   id: string;
   channel: string;
   to: string;
+  spaceId?: string;
   accountId?: string;
   durability: Exclude<MessageDurabilityPolicy, "disabled">;
   renderedBatch?: RenderedMessageBatch<TPayload>;

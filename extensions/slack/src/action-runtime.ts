@@ -25,7 +25,12 @@ import {
   type OpenClawConfig,
   withNormalizedTimestamp,
 } from "./runtime-api.js";
-import { parseSlackTarget, resolveSlackChannelId, slackContextTargetsMatch } from "./targets.js";
+import {
+  normalizeSlackWorkspaceId,
+  parseSlackTarget,
+  resolveSlackChannelId,
+  slackContextTargetsMatch,
+} from "./targets.js";
 
 type ConversationReadInvocationOrigin = NonNullable<
   ChannelMessageActionContext["conversationReadOrigin"]
@@ -80,6 +85,7 @@ export const slackActionRuntime = {
     cfg: OpenClawConfig;
     accountId?: string | null;
     channelId: string;
+    workspaceId?: string;
     operation?: "read" | "write";
     requireFreshName?: boolean;
   }) => (await loadSlackChannelTypeRuntime()).resolveSlackConversationInfo(params),
@@ -99,6 +105,8 @@ export type SlackActionContext = {
   currentChannelProvider?: string;
   /** Current channel ID for auto-threading. */
   currentChannelId?: string;
+  /** Workspace inferred from the trusted current Slack turn. */
+  currentWorkspaceId?: string;
   /** Routable target for the current conversation when it differs from the channel ID. */
   currentMessagingTarget?: string;
   /** Current thread timestamp for auto-threading. */
@@ -242,6 +250,7 @@ async function isSlackDmTargetConfigured(params: {
 function isCurrentSlackReadTarget(params: {
   account: ResolvedSlackAccount;
   channelId: string;
+  workspaceId?: string;
   context?: SlackActionContext;
 }): boolean {
   const requesterAccountId = params.context?.requesterAccountId?.trim();
@@ -249,6 +258,10 @@ function isCurrentSlackReadTarget(params: {
     normalizeOptionalLowercaseString(params.context?.currentChannelProvider) === "slack" &&
     requesterAccountId &&
     normalizeAccountId(requesterAccountId) === normalizeAccountId(params.account.accountId) &&
+    (!params.workspaceId ||
+      !params.context?.currentWorkspaceId ||
+      normalizeSlackWorkspaceId(params.workspaceId) ===
+        normalizeSlackWorkspaceId(params.context.currentWorkspaceId)) &&
     params.context &&
     slackContextTargetsMatch(params.channelId, params.context),
   );
@@ -350,6 +363,7 @@ async function assertSlackReadTargetAllowed(params: {
   account: ResolvedSlackAccount;
   cfg: OpenClawConfig;
   channelId: string;
+  workspaceId?: string;
   conversationReadOrigin?: ConversationReadInvocationOrigin;
   context?: SlackActionContext;
 }) {
@@ -359,6 +373,7 @@ async function assertSlackReadTargetAllowed(params: {
   const currentConversation = isCurrentSlackReadTarget({
     account: params.account,
     channelId: params.channelId,
+    workspaceId: params.workspaceId,
     context: params.context,
   });
   const directOperator = params.conversationReadOrigin === "direct-operator";
@@ -373,6 +388,7 @@ async function assertSlackReadTargetAllowed(params: {
       cfg: params.cfg,
       accountId: params.account.accountId,
       channelId: params.channelId,
+      workspaceId: params.workspaceId,
       operation: "read",
     });
     if (
@@ -407,6 +423,7 @@ async function assertSlackReadTargetAllowed(params: {
     cfg: params.cfg,
     accountId: params.account.accountId,
     channelId: params.channelId,
+    workspaceId: params.workspaceId,
     operation: "read",
     ...(preliminary.shouldResolveName ? { requireFreshName: true } : {}),
   });
@@ -485,8 +502,28 @@ export async function handleSlackAction(
   const accountId = readStringParam(params, "accountId");
   const { resolveSlackAccount, resolveSlackOperationToken } = await loadSlackAccountsRuntime();
   const account = resolveSlackAccount({ cfg, accountId });
-  if (account.config.enterpriseOrgInstall === true) {
-    throw new Error("Slack action tools are unavailable for Enterprise Grid org installs.");
+  const explicitWorkspaceId = normalizeSlackWorkspaceId(readStringParam(params, "workspaceId"));
+  const targetWorkspaceIds = [readStringParam(params, "to"), readStringParam(params, "channelId")]
+    .map((target) => (target ? parseSlackTarget(target)?.workspaceId : undefined))
+    .filter((workspaceId): workspaceId is string => Boolean(workspaceId));
+  const requestedWorkspaceIds = new Set(
+    [explicitWorkspaceId, ...targetWorkspaceIds]
+      .map((workspaceId) => normalizeSlackWorkspaceId(workspaceId))
+      .filter((workspaceId): workspaceId is string => Boolean(workspaceId)),
+  );
+  if (requestedWorkspaceIds.size > 1) {
+    throw new Error("Slack workspaceId conflicts with the workspace-qualified target.");
+  }
+  const workspaceId =
+    (requestedWorkspaceIds.values().next().value as string | undefined) ??
+    normalizeSlackWorkspaceId(context?.currentWorkspaceId);
+  if (account.config.enterpriseOrgInstall === true && !workspaceId) {
+    throw new Error(
+      "Slack workspaceId is required for Enterprise Grid actions outside a current Slack workspace.",
+    );
+  }
+  if (account.config.enterpriseOrgInstall !== true && workspaceId) {
+    throw new Error("Slack workspaceId is only supported for Enterprise Grid org installs.");
   }
   const actionConfig = account.actions ?? cfg.channels?.slack?.actions;
   const isActionEnabled = createActionGate(actionConfig);
@@ -502,6 +539,7 @@ export async function handleSlackAction(
       cfg,
       ...(accountId ? { accountId } : {}),
       ...(tokenOverride ? { token: tokenOverride } : {}),
+      ...(workspaceId ? { workspaceId } : {}),
     };
   };
 
@@ -512,6 +550,7 @@ export async function handleSlackAction(
       account,
       cfg,
       channelId,
+      workspaceId,
       conversationReadOrigin: context?.conversationReadOrigin,
       context,
     });

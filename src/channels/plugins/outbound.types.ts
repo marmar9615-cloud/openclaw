@@ -21,6 +21,8 @@ import type {
 export type ChannelOutboundContext = {
   cfg: OpenClawConfig;
   to: string;
+  /** Provider-native space/workspace that owns the destination. */
+  spaceId?: string;
   text: string;
   mediaUrl?: string;
   audioAsVoice?: boolean;

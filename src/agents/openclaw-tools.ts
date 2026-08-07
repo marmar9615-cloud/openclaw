@@ -393,6 +393,7 @@ export function createOpenClawTools(
         config: options?.config,
         preparedMessageToolCatalog: options?.preparedModelRuntime?.messageToolCatalog,
         currentChannelId: options?.currentChannelId,
+        currentSpaceId: options?.agentGroupSpace ?? undefined,
         currentChatType: options?.currentChatType,
         currentMessagingTarget:
           options?.currentMessagingTarget ??

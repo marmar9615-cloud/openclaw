@@ -46,6 +46,7 @@ function resolveSlackActionContext(
   }
   return {
     ...(toolContext as SlackActionContext | undefined),
+    currentWorkspaceId: ctx.toolContext?.currentSpaceId,
     // Authority comes only from the host-owned action context. Overwrite any
     // structurally compatible fields carried by generic tool context.
     mediaAccess: ctx.mediaAccess,

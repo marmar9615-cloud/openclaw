@@ -64,14 +64,67 @@ describe("handleSlackAction", () => {
     } as OpenClawConfig;
   }
 
-  it("rejects all actions before Slack API work for an enterprise org account", async () => {
+  it("rejects enterprise actions without a workspace before Slack API work", async () => {
     await expect(
       handleSlackAction(
         { action: "readMessages", channelId: "C123" },
         slackConfig({ enterpriseOrgInstall: true }),
       ),
-    ).rejects.toThrow(/unavailable for Enterprise Grid org installs/);
+    ).rejects.toThrow(/workspaceId is required for Enterprise Grid actions/);
     expect(readSlackMessages).not.toHaveBeenCalled();
+  });
+
+  it("uses the trusted current workspace for enterprise actions", async () => {
+    const cfg = slackConfig({ enterpriseOrgInstall: true });
+    readSlackMessages.mockResolvedValueOnce({ messages: [], hasMore: false });
+
+    await handleSlackAction({ action: "readMessages", channelId: "C123" }, cfg, {
+      currentChannelProvider: "slack",
+      currentChannelId: "C123",
+      currentWorkspaceId: "T1",
+      requesterAccountId: "default",
+    });
+
+    expect(readSlackMessages).toHaveBeenCalledWith(
+      "C123",
+      expect.objectContaining({ cfg, workspaceId: "T1" }),
+    );
+  });
+
+  it("uses an explicit workspace for proactive enterprise actions", async () => {
+    const cfg = slackConfig({ enterpriseOrgInstall: true });
+
+    await handleSlackAction(
+      {
+        action: "react",
+        channelId: "workspace:T2:channel:C123",
+        workspaceId: "T2",
+        messageId: "123.456",
+        emoji: "eyes",
+      },
+      cfg,
+    );
+
+    expect(reactSlackMessage).toHaveBeenCalledWith("C123", "123.456", "eyes", {
+      cfg,
+      workspaceId: "T2",
+    });
+  });
+
+  it("rejects conflicting explicit and target workspaces", async () => {
+    await expect(
+      handleSlackAction(
+        {
+          action: "react",
+          channelId: "workspace:T1:channel:C123",
+          workspaceId: "T2",
+          messageId: "123.456",
+          emoji: "eyes",
+        },
+        slackConfig({ enterpriseOrgInstall: true }),
+      ),
+    ).rejects.toThrow(/workspaceId conflicts/);
+    expect(reactSlackMessage).not.toHaveBeenCalled();
   });
 
   function createReplyToFirstContext(hasRepliedRef: { value: boolean }) {

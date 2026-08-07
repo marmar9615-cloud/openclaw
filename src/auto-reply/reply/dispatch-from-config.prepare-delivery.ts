@@ -155,6 +155,7 @@ export async function prepareDispatchDelivery(state: GatherDispatchRequestReadyS
       payload,
       channel: routeReplyChannel,
       to: routeReplyTo,
+      spaceId: ctx.GroupSpace,
       sessionKey: agentRuntimeSessionKey,
       policySessionKey:
         options?.sessionKey ?? resolveCommandTurnTargetSessionKey(ctx) ?? ctx.SessionKey,

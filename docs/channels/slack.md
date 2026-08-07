@@ -240,20 +240,50 @@ bot-authored `message` and `app_mention` events before dispatch, regardless of
 `allowBots`, because org installs do not provide a stable workspace-qualified
 bot identity for loop prevention.
 
-Enterprise support is intentionally limited to direct Socket Mode or HTTP
-`message` and `app_mention` events and their immediate replies. Relay mode,
-slash commands, interactions, App Home, reaction event listeners, pins, Slack
-action tools, Slack-native approvals, bindings, queued or scheduled delivery,
-and proactive sends are unavailable for an enterprise account. Outbound
-acknowledgment, typing, and status reactions are supported through the
-listener-owned Slack client and require `reactions:write`; inbound reaction
-notifications and reaction action tools remain unavailable.
+Enterprise inbound support is intentionally limited to direct Socket Mode or
+HTTP `message` and `app_mention` events. Relay mode, slash commands,
+interactions, App Home, non-message event listeners (including reaction and pin
+events), Slack-native approvals, and bindings remain unavailable for an
+enterprise account.
 
-Immediate replies reuse the standard Slack delivery behavior for chunks,
-media, metadata, identity fallback, unfurls, and receipts, but only while the
-validated listener-owned client remains in the active event turn. The
-in-memory send queue and thread-participation records are partitioned by that
-event's workspace; the client itself is never serialized or persisted.
+Replies and Slack action tools are workspace-aware. During an inbound Slack
+turn, OpenClaw infers the workspace from the validated event. For proactive
+`message` tool actions outside a current Slack turn, pass the workspace ID
+explicitly:
+
+```json5
+{
+  action: "send",
+  channel: "slack",
+  target: "channel:C0123456789",
+  workspaceId: "T0123456789",
+  message: "Hello from OpenClaw",
+}
+```
+
+The same `workspaceId` field scopes read, reaction, edit, delete, file, pin,
+member, and emoji actions when those actions and their required Slack scopes are
+enabled. A workspace-qualified target is also accepted; `workspace:` is the
+canonical prefix and `team:` is an alias:
+
+```bash
+openclaw message send --channel slack \
+  --target workspace:T0123456789:channel:C0123456789 \
+  --message "Scheduled update"
+```
+
+Use `workspace:<workspaceId>:user:<userId>` for a DM. Cron, queued, and
+scheduled delivery persist the workspace with the destination, so recovery
+recreates a team-scoped Slack client before sending. OpenClaw rejects an
+enterprise delivery when its workspace is missing or conflicts with the
+workspace-qualified target. Slack remains responsible for verifying that the
+org-installed app is available in that workspace.
+
+Immediate replies reuse the validated listener-owned client. Detached and
+recovered sends construct a client with the selected workspace, while the
+in-memory send queue and thread-participation records remain partitioned by
+workspace. Outbound acknowledgment, typing, and status reactions require
+`reactions:write`; inbound reaction notifications remain unavailable.
 
 Channel policy keys and `dm.groupChannels` entries must use raw stable Slack channel IDs or the
 `channel:<id>` form. OpenClaw normalizes either form to the raw channel ID for

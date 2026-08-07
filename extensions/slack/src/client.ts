@@ -20,7 +20,7 @@ let slackListenerUploadCompletionClientCache = new WeakMap<
   { teamId: string; client: WebClient }
 >();
 
-type SlackWriteClientCacheOptions = Pick<WebClientOptions, "slackApiUrl">;
+type SlackWriteClientCacheOptions = Pick<WebClientOptions, "slackApiUrl" | "teamId">;
 type SlackFetch = NonNullable<WebClientOptions["fetch"]>;
 
 export {
@@ -92,7 +92,9 @@ export function createSlackTokenCacheKey(token: string): string {
 
 function slackWriteClientCacheKey(token: string, options: SlackWriteClientCacheOptions): string {
   const tokenKey = createSlackTokenCacheKey(token);
-  return options.slackApiUrl ? `${tokenKey}:api:${options.slackApiUrl}` : tokenKey;
+  const apiKey = options.slackApiUrl ? `:api:${options.slackApiUrl}` : "";
+  const workspaceKey = options.teamId ? `:workspace:${options.teamId.toUpperCase()}` : "";
+  return `${tokenKey}${apiKey}${workspaceKey}`;
 }
 
 export function getSlackWriteClient(

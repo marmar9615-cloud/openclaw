@@ -164,6 +164,7 @@ export function buildThreadingToolContext(params: {
         Channel: originProvider,
         From: sessionCtx.From,
         To: originTo,
+        SpaceId: sessionCtx.GroupSpace,
         ChatType: sessionCtx.ChatType,
         CurrentMessageId: currentMessageId,
         ReplyToMode: sessionCtx.ReplyToMode,

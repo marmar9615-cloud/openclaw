@@ -18,6 +18,7 @@ type RecoveryMessageActionCapabilityParams = Pick<
   | "chatType"
   | "currentChannelId"
   | "currentThreadTs"
+  | "groupSpace"
   | "hasRepliedRef"
   | "messageActionTurnCapability"
   | "messageChannel"
@@ -58,6 +59,7 @@ export function createRecoveryMessageActionTurnCapability(
     requesterSenderId: params.senderId ?? undefined,
     toolContext: {
       currentChannelId: params.currentChannelId,
+      currentSpaceId: params.groupSpace ?? undefined,
       currentChatType: params.chatType,
       currentMessagingTarget: params.messageTo,
       currentChannelProvider: sourceChannel as ChannelId,

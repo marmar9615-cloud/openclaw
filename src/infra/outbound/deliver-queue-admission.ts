@@ -111,6 +111,7 @@ export async function stageAndEnqueueOutboundDelivery(
     const delivery = {
       channel,
       to,
+      spaceId: params.spaceId,
       accountId: params.accountId,
       queuePolicy,
       requireUnknownSendReconciliation: params.requireUnknownSendReconciliation,

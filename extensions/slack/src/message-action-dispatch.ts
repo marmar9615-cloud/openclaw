@@ -71,9 +71,22 @@ export async function handleSlackMessageAction(params: {
   normalizeChannelId?: (channelId: string) => string;
   includeReadThreadId?: boolean;
 }): Promise<AgentToolResult<unknown>> {
-  const { providerId, ctx, invoke, normalizeChannelId, includeReadThreadId = false } = params;
+  const {
+    providerId,
+    ctx,
+    invoke: invokeAction,
+    normalizeChannelId,
+    includeReadThreadId = false,
+  } = params;
   const { action, cfg, params: actionParams } = ctx;
   const accountId = ctx.accountId ?? undefined;
+  const workspaceId = readStringParam(actionParams, "workspaceId");
+  const invoke: SlackActionInvoke = async (actionParams, actionCfg, toolContext) =>
+    await invokeAction(
+      workspaceId ? { ...actionParams, workspaceId } : actionParams,
+      actionCfg,
+      toolContext,
+    );
   const resolveChannelId = () => {
     const channelId =
       readStringParam(actionParams, "channelId") ??

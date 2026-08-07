@@ -13,6 +13,7 @@ type UnknownSendQueueEntry = {
   id: string;
   channel: string;
   to: string;
+  spaceId?: string;
   accountId?: string;
   enqueuedAt: number;
   retryCount: number;
@@ -36,6 +37,7 @@ export function buildUnknownSendContext(params: {
     queueId: entry.id,
     channel: entry.channel,
     to: entry.to,
+    ...(entry.spaceId !== undefined ? { spaceId: entry.spaceId } : {}),
     ...(entry.accountId !== undefined ? { accountId: entry.accountId } : {}),
     enqueuedAt: entry.enqueuedAt,
     retryCount: entry.retryCount,

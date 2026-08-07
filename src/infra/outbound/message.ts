@@ -55,6 +55,8 @@ const loadMessageGatewayRuntime = createLazyRuntimeModule(
 type MessageSendParams = {
   to: string;
   content: string;
+  /** Provider-native space/workspace that owns the destination. */
+  spaceId?: string;
   /** Active agent id for per-agent outbound media root scoping. */
   agentId?: string;
   /** Originating session key used for requester-scoped outbound media policy. */
@@ -395,6 +397,7 @@ export async function sendMessage(params: MessageSendParams): Promise<MessageSen
       cfg,
       channel: outboundChannel,
       to: resolvedTarget.to,
+      spaceId: params.spaceId,
       session: outboundSession,
       accountId: params.accountId,
       conversationReadOrigin: params.conversationReadOrigin,

@@ -33,6 +33,7 @@ export type SlackActionClientOpts = {
   accountId?: string;
   token?: string;
   client?: WebClient;
+  workspaceId?: string;
 };
 
 export type SlackMessageSummary = {
@@ -214,7 +215,10 @@ async function getClient(opts: SlackActionClientOpts = {}, mode: "read" | "write
     return opts.client;
   }
   const token = resolveToken(opts.token, opts.accountId, opts.cfg);
-  return mode === "write" ? getSlackWriteClient(token) : createSlackLookupClient(token);
+  const clientOptions = opts.workspaceId ? { teamId: opts.workspaceId } : undefined;
+  return mode === "write"
+    ? getSlackWriteClient(token, clientOptions)
+    : createSlackLookupClient(token, clientOptions);
 }
 
 async function resolveBotUserId(client: WebClient) {
@@ -347,6 +351,7 @@ export async function sendSlackMessage(
     mediaLocalRoots: opts.mediaLocalRoots,
     mediaReadFile: opts.mediaReadFile,
     client: opts.client,
+    workspaceId: opts.workspaceId,
     threadTs: opts.threadTs,
     replyBroadcast: opts.replyBroadcast,
     ...(opts.textIsSlackMrkdwn ? { textIsSlackMrkdwn: true } : {}),

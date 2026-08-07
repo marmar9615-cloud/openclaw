@@ -372,6 +372,20 @@ describe("delivery-queue recovery", () => {
     expect(result).toEqual(RECOVERY_SUMMARY.twoRecovered);
     expect(await loadPendingDeliveries(tmpDir())).toHaveLength(0);
   });
+  it("forwards persisted provider workspace scope during recovery", async () => {
+    await enqueueRecoveryDelivery({
+      channel: "slack",
+      to: "C123",
+      spaceId: "T123",
+      payloads: [{ text: "workspace-scoped" }],
+    });
+    const deliver = vi.fn().mockResolvedValue([]);
+
+    const { result } = await runRecovery({ deliver });
+
+    expect(deliver).toHaveBeenCalledWith(expect.objectContaining({ spaceId: "T123" }));
+    expect(result).toEqual(RECOVERY_SUMMARY.recovered);
+  });
   it("finalizes a persisted conversation operation during queue recovery", async () => {
     const scope = await createConversationRecoveryFixture("operation-recovery");
     const deliveryResult = { channel: "reef" as const, messageId: "reef-platform" };

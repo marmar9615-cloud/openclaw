@@ -69,6 +69,7 @@ export const handleBtwCommand: CommandHandler = defineAuthorizedTextCommand(
               requesterSenderId: params.ctx.SenderId ?? params.command.senderId,
               toolContext: {
                 currentChannelId,
+                currentSpaceId: normalizeOptionalString(params.ctx.GroupSpace),
                 currentChatType: chatType,
                 currentMessagingTarget: messageTo,
                 currentChannelProvider,

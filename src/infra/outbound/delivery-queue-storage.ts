@@ -81,6 +81,8 @@ export type QueuedReplyPayloadSendingHook = {
 export type QueuedDeliveryPayload = {
   channel: Exclude<OutboundChannel, "none">;
   to: string;
+  /** Provider-native space/workspace required to replay this destination safely. */
+  spaceId?: string;
   accountId?: string;
   /** Original queue durability policy when known. */
   queuePolicy?: "required" | "best_effort";
@@ -190,6 +192,7 @@ function createQueuedDelivery(params: QueuedDeliveryPayload, id: string): Queued
     enqueuedAt: Date.now(),
     channel: params.channel,
     to: params.to,
+    spaceId: params.spaceId,
     accountId: params.accountId,
     queuePolicy: params.queuePolicy,
     requireUnknownSendReconciliation: params.requireUnknownSendReconciliation,

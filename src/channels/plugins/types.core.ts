@@ -446,6 +446,8 @@ export type ChannelThreadingContext = {
   Channel?: string;
   From?: string;
   To?: string;
+  /** Provider-native space/workspace that owns the conversation. */
+  SpaceId?: string;
   ChatType?: string;
   CurrentMessageId?: string | number;
   /** Effective channel reply mode prepared for this turn. */
@@ -461,6 +463,8 @@ export type ChannelThreadingContext = {
 
 export type ChannelThreadingToolContext = {
   currentChannelId?: string;
+  /** Trusted provider-native space/workspace for the active inbound turn. */
+  currentSpaceId?: string;
   /** Trusted normalized conversation kind for the active inbound turn. */
   currentChatType?: ChatType;
   /** Routable messaging target when it differs from the platform-native channel id. */

@@ -52,6 +52,8 @@ type OutboundSendContext = {
   cfg: OpenClawConfig;
   channel: ChannelId;
   params: Record<string, unknown>;
+  /** Provider-native space/workspace that owns the destination. */
+  spaceId?: string;
   /** Active agent id for per-agent outbound media root scoping. */
   agentId?: string;
   sessionKey?: string;
@@ -145,6 +147,7 @@ async function sendCoreMessage(params: {
     cfg: params.ctx.cfg,
     to: params.to,
     content: params.message,
+    spaceId: params.ctx.spaceId,
     ...(params.payloads ? { payloads: params.payloads } : {}),
     agentId: params.ctx.agentId,
     requesterSessionKey: params.ctx.sessionKey,

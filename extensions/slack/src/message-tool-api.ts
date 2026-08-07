@@ -6,6 +6,7 @@ import type {
   ChannelMessageToolSchemaContribution,
 } from "openclaw/plugin-sdk/channel-contract";
 import { Type, type TSchema } from "typebox";
+import { mergeSlackAccountConfig, resolveDefaultSlackAccountId } from "./accounts.js";
 import { listSlackMessageActions } from "./message-actions.js";
 
 const SLACK_MESSAGE_ID_ACTIONS = ["react", "reactions", "edit", "delete", "pin", "unpin"] as const;
@@ -69,6 +70,17 @@ function createSlackTopLevelActionSchema(): Record<string, TSchema> {
   };
 }
 
+function createSlackWorkspaceActionSchema(): Record<string, TSchema> {
+  return {
+    workspaceId: Type.Optional(
+      Type.String({
+        description:
+          'Slack Enterprise Grid workspace ID, starting with "T". Inferred from the current Slack turn; required for proactive actions outside a current Slack workspace.',
+      }),
+    ),
+  };
+}
+
 export function describeSlackMessageTool({
   cfg,
   accountId,
@@ -80,6 +92,16 @@ export function describeSlackMessageTool({
   const schema: ChannelMessageToolSchemaContribution[] = [];
   if (actions.includes("send")) {
     capabilities.add("presentation");
+  }
+  const effectiveAccountId = accountId ?? resolveDefaultSlackAccountId(cfg);
+  if (
+    actions.length > 0 &&
+    mergeSlackAccountConfig(cfg, effectiveAccountId).enterpriseOrgInstall === true
+  ) {
+    schema.push({
+      properties: createSlackWorkspaceActionSchema(),
+      actions,
+    });
   }
   if (actions.includes("download-file")) {
     schema.push({

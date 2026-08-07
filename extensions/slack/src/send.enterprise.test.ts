@@ -1,4 +1,6 @@
 // Slack tests cover listener-scoped Enterprise Grid delivery through the canonical sender.
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import type { WebClient } from "@slack/web-api";
 import type { OpenClawConfig } from "openclaw/plugin-sdk/config-contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -26,6 +28,7 @@ vi.mock("./runtime-api.js", async () => {
 });
 
 const { sendMessageSlack } = await import("./send.js");
+const originalSlackApiUrl = process.env.SLACK_API_URL;
 
 type EnterpriseTestClient = WebClient & {
   chat: { postMessage: ReturnType<typeof vi.fn> };
@@ -106,6 +109,30 @@ function deferredPostMessage(ts: string) {
   return { promise, release };
 }
 
+async function startSlackApiServer(requests: string[]): Promise<{
+  baseUrl: string;
+  close(): Promise<void>;
+}> {
+  const server = createServer((request, response) => {
+    const chunks: Buffer[] = [];
+    request.on("data", (chunk) => chunks.push(Buffer.from(chunk)));
+    request.once("end", () => {
+      requests.push(Buffer.concat(chunks).toString("utf8"));
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(`${JSON.stringify({ ok: true, ts: "123.456", channel: "C123" })}\n`);
+    });
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address() as AddressInfo;
+  return {
+    baseUrl: `http://127.0.0.1:${address.port}`,
+    close: () =>
+      new Promise<void>((resolve, reject) => {
+        server.close((error) => (error ? reject(error) : resolve()));
+      }),
+  };
+}
+
 describe("sendMessageSlack Enterprise listener scope", () => {
   beforeEach(() => {
     clearSlackThreadParticipationCache();
@@ -115,9 +142,14 @@ describe("sendMessageSlack Enterprise listener scope", () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+    if (originalSlackApiUrl === undefined) {
+      delete process.env.SLACK_API_URL;
+    } else {
+      process.env.SLACK_API_URL = originalSlackApiUrl;
+    }
   });
 
-  it("keeps ordinary and arbitrarily client-injected Enterprise sends fail closed", async () => {
+  it("keeps workspace-unqualified and arbitrarily client-injected Enterprise sends fail closed", async () => {
     const client = createEnterpriseClient();
 
     for (const message of ["hello", "NO_REPLY"]) {
@@ -130,6 +162,27 @@ describe("sendMessageSlack Enterprise listener scope", () => {
       ).rejects.toThrow("unsupported_enterprise_slack_delivery");
     }
     expect(client.chat.postMessage).not.toHaveBeenCalled();
+  });
+
+  it("sends detached Enterprise delivery through a workspace-scoped WebClient", async () => {
+    const requests: string[] = [];
+    const server = await startSlackApiServer(requests);
+    process.env.SLACK_API_URL = `${server.baseUrl}/api/`;
+    try {
+      const result = await sendMessageSlack("workspace:T123:channel:C08GQH53EJM", "hello", {
+        cfg: ENTERPRISE_CFG,
+        token: "xoxb-enterprise-detached",
+        workspaceId: "T123",
+      });
+
+      expect(result).toMatchObject({ messageId: "123.456", channelId: "C123" });
+      expect(requests).toHaveLength(1);
+      const body = new URLSearchParams(requests[0]);
+      expect(body.get("channel")).toBe("C08GQH53EJM");
+      expect(body.get("team_id")).toBe("T123");
+    } finally {
+      await server.close();
+    }
   });
 
   it("requires the exact validated listener client and an Enterprise account", async () => {
@@ -181,7 +234,7 @@ describe("sendMessageSlack Enterprise listener scope", () => {
     expect(result).toMatchObject({ messageId: "123.456", channelId: "C123" });
   });
 
-  it.each(["U123", "user:U123", "#general", "slack:C123", "team:T123:channel:C08GQH53EJM"])(
+  it.each(["U123", "user:U123", "#general", "slack:C123"])(
     "rejects unsupported listener-owned target %s",
     async (target) => {
       const client = createEnterpriseClient();
@@ -192,6 +245,19 @@ describe("sendMessageSlack Enterprise listener scope", () => {
       expect(client.chat.postMessage).not.toHaveBeenCalled();
     },
   );
+
+  it("rejects a listener event target qualified for a different workspace", async () => {
+    const client = createEnterpriseClient();
+
+    await expect(
+      sendMessageSlack(
+        "workspace:T2:channel:C08GQH53EJM",
+        "hello",
+        enterpriseOptions(client, "T1"),
+      ),
+    ).rejects.toThrow("conflicting_enterprise_slack_workspace");
+    expect(client.chat.postMessage).not.toHaveBeenCalled();
+  });
 
   it("workspace-qualifies the send queue", async () => {
     const firstClient = createEnterpriseClient();

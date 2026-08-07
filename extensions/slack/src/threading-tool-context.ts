@@ -41,6 +41,7 @@ export function buildSlackThreadingToolContext(params: {
     : (normalizeOptionalString(params.context.NativeChannelId) ?? currentMessagingTarget);
   return {
     currentChannelId,
+    currentSpaceId: normalizeOptionalString(params.context.SpaceId),
     currentMessagingTarget,
     currentThreadTs,
     replyToMode: effectiveReplyToMode,

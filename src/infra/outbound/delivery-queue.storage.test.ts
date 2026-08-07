@@ -185,6 +185,24 @@ describe("delivery-queue storage", () => {
       expect(readQueuedEntry(tmpDir(), id).maxRetries).toBe(45);
     });
 
+    it("persists provider workspace scope for recovery replay", async () => {
+      const id = await enqueueTextDelivery({
+        channel: "slack",
+        to: "C123",
+        spaceId: "T123",
+        payloads: [{ text: "workspace-scoped" }],
+      });
+
+      expect(readQueuedEntry(tmpDir(), id)).toMatchObject({
+        channel: "slack",
+        to: "C123",
+        spaceId: "T123",
+      });
+      await expect(loadPendingDelivery(id, tmpDir())).resolves.toMatchObject({
+        spaceId: "T123",
+      });
+    });
+
     it("projects process-local hook metadata out before JSON custody", async () => {
       const id = await enqueueTextDelivery({
         channel: "directchat",

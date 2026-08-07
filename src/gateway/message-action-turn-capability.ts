@@ -73,6 +73,7 @@ function copyToolContext(
   }
   return {
     currentChannelId: normalizeOptionalString(context.currentChannelId),
+    currentSpaceId: normalizeOptionalString(context.currentSpaceId),
     currentChatType: context.currentChatType,
     currentMessagingTarget: normalizeOptionalString(context.currentMessagingTarget),
     currentGraphChannelId: normalizeOptionalString(context.currentGraphChannelId),

@@ -167,6 +167,7 @@ function toDurableMessageIntent(
     id: intent.id,
     channel: intent.channel,
     to: intent.to,
+    ...(intent.spaceId ? { spaceId: intent.spaceId } : {}),
     ...(intent.accountId ? { accountId: intent.accountId } : {}),
     durability: intent.queuePolicy === "required" ? "required" : "best_effort",
     renderedBatch,

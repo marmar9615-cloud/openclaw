@@ -225,6 +225,29 @@ describe("slackPlugin actions", () => {
     expect(isRecord(downloadProperties.fileId)).toBe(true);
   });
 
+  it("exposes workspaceId to Enterprise Grid message actions", () => {
+    const discovery = slackPlugin.actions?.describeMessageTool({
+      cfg: {
+        channels: {
+          slack: {
+            botToken: "xoxb-enterprise",
+            appToken: "xapp-enterprise",
+            enterpriseOrgInstall: true,
+          },
+        },
+      },
+    });
+    const workspaceEntry = requireArray(discovery?.schema, "Slack schema").find((candidate) => {
+      const properties = requireRecord(
+        requireRecord(candidate, "Slack schema entry").properties,
+        "Slack schema properties",
+      );
+      return isRecord(properties.workspaceId);
+    });
+
+    expect(workspaceEntry).toBeDefined();
+  });
+
   it("honors the selected Slack account during message tool discovery", () => {
     const cfg: OpenClawConfig = {
       channels: {
@@ -993,7 +1016,7 @@ describe("slackPlugin outbound", () => {
     expect(result).toEqual({ channel: "slack", messageId: "m-text" });
   });
 
-  it("rejects enterprise outbound before resolving the injected sender", async () => {
+  it("rejects workspace-unqualified enterprise outbound before resolving the injected sender", async () => {
     const sendSlack = vi.fn().mockResolvedValue({ messageId: "should-not-send" });
     const sendText = requireSlackSendText();
 
@@ -1007,6 +1030,53 @@ describe("slackPlugin outbound", () => {
       }),
     ).rejects.toThrow("unsupported_enterprise_slack_delivery");
     expect(sendSlack).not.toHaveBeenCalled();
+  });
+
+  it("forwards workspace scope for enterprise outbound", async () => {
+    const sendSlack = vi.fn().mockResolvedValue({ messageId: "m-enterprise" });
+    const sendText = requireSlackSendText();
+
+    const result = await sendText({
+      cfg: { channels: { slack: { enterpriseOrgInstall: true } } },
+      to: "workspace:T1:channel:C123",
+      spaceId: "T1",
+      text: "hello",
+      accountId: "default",
+      deps: { sendSlack },
+    });
+
+    expect(requireMockCallArgValue(sendSlack, 0, 0)).toBe("workspace:T1:channel:C123");
+    expectRecordFields(requireMockCallArg(sendSlack, 0, 2), "send options", {
+      workspaceId: "T1",
+    });
+    expect(result).toEqual({ channel: "slack", messageId: "m-enterprise" });
+  });
+
+  it("admits durable Enterprise Grid delivery only with one workspace", () => {
+    const admit = slackPlugin.message?.durableFinal?.admitDeferredDelivery;
+    if (!admit) {
+      throw new Error("Slack durable delivery admission unavailable");
+    }
+    const enterpriseCfg = { channels: { slack: { enterpriseOrgInstall: true } } };
+    const base = {
+      cfg: enterpriseCfg,
+      channel: "slack" as const,
+      accountId: "default",
+      phase: "live" as const,
+    };
+
+    expect(admit({ ...base, to: "C123", spaceId: "T1" })).toEqual({ status: "allowed" });
+    expect(admit({ ...base, to: "workspace:T1:channel:C123" })).toEqual({
+      status: "allowed",
+    });
+    expect(admit({ ...base, to: "C123" })).toEqual({
+      status: "permanent_rejection",
+      reason: "missing_enterprise_slack_workspace",
+    });
+    expect(admit({ ...base, to: "workspace:T2:channel:C123", spaceId: "T1" })).toEqual({
+      status: "permanent_rejection",
+      reason: "conflicting_enterprise_slack_workspace",
+    });
   });
 
   it("forwards agent identity through the registered text sender", async () => {
