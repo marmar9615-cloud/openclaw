@@ -611,19 +611,27 @@ function assertHostReadMediaAllowed(params: {
   );
 }
 
-function toJpegFileName(fileName?: string): string | undefined {
-  if (!fileName) {
-    return undefined;
+// Queue custody preserves artifact paths; outbound image metadata must still match encoded bytes.
+function reconcileImageFileName(media: WebMediaResult): WebMediaResult {
+  const contentType = normalizeMimeType(media.contentType);
+  if (
+    media.kind !== "image" ||
+    !media.fileName ||
+    !contentType ||
+    mimeTypeFromFilePath(media.fileName) === contentType
+  ) {
+    return media;
   }
-  const trimmed = basenameFromAnyPath(fileName.trim());
-  if (!trimmed) {
-    return fileName;
+  const fileName = basenameFromAnyPath(media.fileName.trim());
+  const extension = extensionForMime(contentType);
+  if (!fileName || !extension) {
+    return media;
   }
-  const parsed = path.parse(trimmed);
-  if (!parsed.ext || HEIC_EXT_RE.test(parsed.ext)) {
-    return path.format({ dir: parsed.dir, name: parsed.name || trimmed, ext: ".jpg" });
-  }
-  return path.format({ dir: parsed.dir, name: parsed.name, ext: ".jpg" });
+  const parsed = path.parse(fileName);
+  return {
+    ...media,
+    fileName: path.format({ name: parsed.name || fileName, ext: extension }),
+  };
 }
 
 type OptimizedImage = {
@@ -997,12 +1005,12 @@ export async function optimizeImageBufferForWebMedia(params: {
   if (optimized.buffer.length > cap) {
     throw new Error(formatCapReduce("Media", cap, optimized.buffer.length));
   }
-  return {
+  return reconcileImageFileName({
     buffer: optimized.buffer,
     contentType: optimized.mimeType,
     kind: "image",
-    fileName: optimized.format === "jpeg" ? toJpegFileName(params.fileName) : params.fileName,
-  };
+    fileName: params.fileName,
+  });
 }
 
 async function loadWebMediaInternal(
@@ -1061,13 +1069,11 @@ async function loadWebMediaInternal(
       throw new Error(formatCapReduce("Media", cap, optimized.buffer.length));
     }
 
-    const fileName = optimized.format === "jpeg" ? toJpegFileName(meta?.fileName) : meta?.fileName;
-
     return {
       buffer: optimized.buffer,
       contentType: optimized.mimeType,
       kind: "image" as const,
-      fileName,
+      fileName: meta?.fileName,
     };
   };
 
@@ -1283,9 +1289,11 @@ export async function loadWebMedia(
   maxBytesOrOptions?: number | WebMediaOptions,
   options?: { ssrfPolicy?: SsrFPolicy; localRoots?: readonly string[] | "any" },
 ): Promise<WebMediaResult> {
-  return await loadWebMediaInternal(
-    mediaUrl,
-    resolveWebMediaOptions({ maxBytesOrOptions, options, optimizeImages: true }),
+  return reconcileImageFileName(
+    await loadWebMediaInternal(
+      mediaUrl,
+      resolveWebMediaOptions({ maxBytesOrOptions, options, optimizeImages: true }),
+    ),
   );
 }
 
