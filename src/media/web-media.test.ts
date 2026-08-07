@@ -522,7 +522,7 @@ describe("loadWebMedia", () => {
       maxBytes: 1024 * 1024,
       imageCompression,
       fetchImpl: async () =>
-        new Response(sourceWebp, {
+        new Response(new Uint8Array(sourceWebp), {
           status: 200,
           headers: { "content-type": "image/webp" },
         }),
