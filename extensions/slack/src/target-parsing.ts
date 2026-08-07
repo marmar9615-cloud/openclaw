@@ -80,8 +80,12 @@ export function parseSlackTarget(
   }
   const workspaceMatch = SLACK_WORKSPACE_TARGET_RE.exec(trimmed);
   if (workspaceMatch) {
-    const workspaceId = normalizeSlackWorkspaceId(workspaceMatch[1]);
-    const nested = parseSlackTarget(workspaceMatch[2], options);
+    const [, rawWorkspaceId, rawTarget] = workspaceMatch;
+    if (!rawWorkspaceId || !rawTarget) {
+      throw new Error("Slack workspace-qualified targets require a workspace and target.");
+    }
+    const workspaceId = normalizeSlackWorkspaceId(rawWorkspaceId);
+    const nested = parseSlackTarget(rawTarget, options);
     if (!workspaceId || !nested) {
       throw new Error("Slack workspace-qualified targets require a workspace and target.");
     }
