@@ -638,6 +638,7 @@ describe("runMessageAction core send routing", () => {
         target: "channel:C123",
         message: "workspace-scoped",
       },
+      defaultAccountId: "default",
       requesterAccountId: "default",
       toolContext: {
         currentChannelProvider: "slack",

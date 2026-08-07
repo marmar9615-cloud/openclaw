@@ -25,12 +25,8 @@ import {
   type OpenClawConfig,
   withNormalizedTimestamp,
 } from "./runtime-api.js";
-import {
-  normalizeSlackWorkspaceId,
-  parseSlackTarget,
-  resolveSlackChannelId,
-  slackContextTargetsMatch,
-} from "./targets.js";
+import { normalizeSlackWorkspaceId } from "./target-parsing.js";
+import { parseSlackTarget, resolveSlackChannelId, slackContextTargetsMatch } from "./targets.js";
 
 type ConversationReadInvocationOrigin = NonNullable<
   ChannelMessageActionContext["conversationReadOrigin"]

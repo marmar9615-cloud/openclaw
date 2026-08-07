@@ -343,8 +343,27 @@ describe("slack web client config", () => {
 
   it("only exposes API-root options on cached write clients", () => {
     expectTypeOf<NonNullable<Parameters<typeof getSlackWriteClient>[1]>>().toEqualTypeOf<
-      Pick<WebClientOptions, "slackApiUrl">
+      Pick<WebClientOptions, "slackApiUrl" | "teamId">
     >();
+  });
+
+  it("keeps write clients separated by Enterprise Grid workspace", () => {
+    clearProxyEnvForTest();
+    try {
+      const first = getSlackWriteClient("xoxb-enterprise", { teamId: "T1" });
+      const second = getSlackWriteClient("xoxb-enterprise", { teamId: "T2" });
+      const firstAgain = getSlackWriteClient("xoxb-enterprise", { teamId: "t1" });
+
+      expect(second).not.toBe(first);
+      expect(firstAgain).toBe(first);
+      expect(WebClient).toHaveBeenCalledTimes(2);
+      expect(WebClient).toHaveBeenNthCalledWith(1, "xoxb-enterprise", {
+        retryConfig: SLACK_WRITE_RETRY_OPTIONS,
+        teamId: "T1",
+      });
+    } finally {
+      restoreProxyEnvForTest();
+    }
   });
 
   it("keeps write clients separated by Slack API URL client options", () => {
