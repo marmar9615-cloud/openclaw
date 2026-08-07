@@ -5,7 +5,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { createSolidPngBuffer } from "openclaw/plugin-sdk/test-fixtures";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { useAutoCleanupTempDirTracker } from "../../../../../test/helpers/temp-dir.js";
+import { useAutoCleanupTempDirTracker } from "../../qqbot-test-support.js";
 import { normalizeSource } from "../messaging/media-source.js";
 import {
   ApiError,
