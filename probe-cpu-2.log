@@ -1,0 +1,140 @@
+CPU load: 10 yes processes, one per logical core
+2026-09-07T21:06:24Z CPU sample
+64432   0.0 yes
+64433   0.0 yes
+64434   0.0 yes
+64435   0.0 yes
+64436   0.0 yes
+64437   0.0 yes
+64438   0.0 yes
+64439   0.0 yes
+64440   0.0 yes
+64441   0.0 yes
+[test] preparing E2E runtime before Vitest workers
+OpenClaw 2026.8.1 (7d00984)
+[PLUGIN_TIMINGS] Your build spent 98% of 4.8s inside plugin hooks (4.7s).
+Measured inside the callback, so queue time is excluded and time the callback itself awaited is not:
+  - rolldown-plugin-dts:generate load (84%, 4.1s, 119 calls)
+Those rows are 84% of the build; the rest of the 98% is below.
+Not measurable — 3 hooks whose calls overlap, so elapsed time covers work other calls were doing. Profile with `node --cpu-prof`:
+  - tsdown:deps resolveId (673 calls)
+  - rolldown-plugin-dts:resolver resolveId (790 calls)
+  - rolldown-plugin-dts:fake-js transform (119 calls)
+See https://rolldown.rs/reference/InputOptions.checks#plugintimings for more details.
+
+[tsdown-build] invocation 1/1 finished in 5.3s
+[test] starting test/vitest/vitest.e2e.config.ts
+
+ RUN  v4.1.11 <HOME>/Desktop/oss/<WORKTREE>
+
+
+ RUN  v4.1.11 <HOME>/Desktop/oss/<WORKTREE>
+
+2026-09-07T21:06:34Z CPU sample
+64432  61.1 yes
+64433  59.8 yes
+64434  60.4 yes
+64435  60.9 yes
+64436  59.0 yes
+64437  60.0 yes
+64438  58.5 yes
+64439  57.9 yes
+64440  59.8 yes
+64441  57.9 yes
+[vitest-workers] prepared 792489549214 in 5769ms (7552 inputs, 3348 outputs)
+2026-09-07T21:06:44Z CPU sample
+64432  51.7 yes
+64433  51.6 yes
+64434  54.0 yes
+64435  53.1 yes
+64436  51.3 yes
+64437  53.2 yes
+64438  54.6 yes
+64439  51.6 yes
+64440  54.9 yes
+64441  53.1 yes
+2026-09-07T21:06:54Z CPU sample
+64432  56.8 yes
+64433  56.8 yes
+64434  58.8 yes
+64435  57.3 yes
+64436  56.7 yes
+64437  57.1 yes
+64438  58.8 yes
+64439  58.5 yes
+64440  56.6 yes
+64441  59.2 yes
+[vitest] still running with no output for 30000ms.
+2026-09-07T21:07:04Z CPU sample
+64432  59.8 yes
+64433  56.2 yes
+64434  57.4 yes
+64435  56.1 yes
+64436  57.0 yes
+64437  55.0 yes
+64438  56.4 yes
+64439  55.3 yes
+64440  56.2 yes
+64441  60.0 yes
+ ✓ src/gateway/gateway.test.ts > gateway e2e > pairs the local CLI before a runtime-token loopback gateway becomes ready 19024ms
+ ✓ src/gateway/gateway.test.ts > gateway e2e > preserves generated auth across a safe direct gateway reload 2188ms
+ ✓ src/gateway/gateway.test.ts > gateway e2e > preserves explicit-override auth across a safe direct gateway reload 941ms
+ ✓ src/gateway/gateway.test.ts > gateway e2e > preserves secret-ref-override auth across a safe direct gateway reload 681ms
+ ✓ src/gateway/gateway.test.ts > gateway e2e > preserves runtime-overrides auth across a safe direct gateway reload 952ms
+ ✓ src/gateway/gateway.test.ts > gateway e2e > refreshes direct hook target policy after hot reload 1196ms
+ ✓ src/gateway/gateway.test.ts > gateway e2e > re-resolves a startup auth SecretRef override when secrets reload 701ms
+ ✓ src/gateway/gateway.test.ts > gateway e2e > preserves runtime-seeded Control UI origins across a safe direct reload 914ms
+ ✓ src/gateway/gateway.test.ts > gateway e2e > accepts a gateway agent request over ws and returns a run id 875ms
+ ✓ src/gateway/gateway.test.ts > gateway e2e > does not reload workspace plugins when POST /tools/invoke rebuilds tools for the same workspace 662ms
+2026-09-07T21:07:14Z CPU sample
+64432  50.9 yes
+64433  53.2 yes
+64434  52.1 yes
+64435  53.0 yes
+64436  52.2 yes
+64437  52.7 yes
+64438  52.8 yes
+64439  51.7 yes
+64440  52.2 yes
+64441  51.4 yes
+ ✓ src/gateway/gateway.test.ts > gateway e2e > runs wizard over ws and writes auth token config 714ms
+ ✓ src/gateway/gateway.test.ts > gateway e2e > returns targeted channel resolution errors without wizard or config effects 406ms
+ ✓ src/gateway/gateway.test.ts > gateway e2e > ignores env-driven plugin auto-enable in minimal gateway mode 243ms
+ ✓ src/gateway/gateway.test.ts (13 tests) 29502ms
+     ✓ pairs the local CLI before a runtime-token loopback gateway becomes ready  19024ms
+     ✓ preserves generated auth across a safe direct gateway reload  2188ms
+     ✓ preserves explicit-override auth across a safe direct gateway reload  941ms
+     ✓ preserves secret-ref-override auth across a safe direct gateway reload  681ms
+     ✓ preserves runtime-overrides auth across a safe direct gateway reload  952ms
+     ✓ refreshes direct hook target policy after hot reload  1196ms
+     ✓ re-resolves a startup auth SecretRef override when secrets reload  701ms
+     ✓ preserves runtime-seeded Control UI origins across a safe direct reload  914ms
+     ✓ accepts a gateway agent request over ws and returns a run id  875ms
+     ✓ does not reload workspace plugins when POST /tools/invoke rebuilds tools for the same workspace  662ms
+     ✓ runs wizard over ws and writes auth token config  714ms
+     ✓ returns targeted channel resolution errors without wizard or config effects  406ms
+
+ Test Files  1 passed (1)
+      Tests  13 passed (13)
+   Start at  16:06:33
+   Duration  41.36s (transform 25.45s, setup 274ms, import 10.65s, tests 29.50s, environment 0ms)
+
+
+ Test Files  1 passed (1)
+      Tests  13 passed (13)
+   Start at  16:06:33
+   Duration  41.36s (transform 25.45s, setup 274ms, import 10.65s, tests 29.50s, environment 0ms)
+
+[vitest-workers] verifying completed generation before cleanup
+[test] passed 1 Vitest shard in 51.25s
+CPU test exit=0
+CPU cleanup confirmed pid=64432
+CPU cleanup confirmed pid=64433
+CPU cleanup confirmed pid=64434
+CPU cleanup confirmed pid=64435
+CPU cleanup confirmed pid=64436
+CPU cleanup confirmed pid=64437
+CPU cleanup confirmed pid=64438
+CPU cleanup confirmed pid=64439
+CPU cleanup confirmed pid=64440
+CPU cleanup confirmed pid=64441

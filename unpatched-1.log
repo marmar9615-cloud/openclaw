@@ -1,0 +1,171 @@
+[test] preparing E2E runtime before Vitest workers
+[openclaw] Building TypeScript (dist is stale: missing_private_qa_dist - private QA dist entry missing).
+[build-all] plugins:assets:build
+$ node --import ./scripts/tsx.mjs scripts/bundled-plugin-assets.mts --phase build
+[canvas] build: node scripts/bundle-a2ui.mjs
+<DIR>/a2ui.bundle.js  chunk │ size: 398.91 kB
+<DIR>/a2ui-v0.9.bundle.js  chunk │ size: 509.68 kB
+
+✔ rolldown v1.2.5 Finished in 153.04 ms
+[diffs] build: node --import tsx ../../scripts/build-diffs-viewer-runtime.mts curated
+[diffs-language-pack] build: node --import tsx ../../scripts/build-diffs-viewer-runtime.mts full
+[discord] build: node --import tsx ../../scripts/build-discord-activity-sdk.mts
+[build-all] plugins:assets:build done in 1.62s
+[build-all] tsdown
+[PLUGIN_TIMINGS] Your build spent 99% of 3.2s inside plugin hooks (3.1s).
+Measured inside the callback, so queue time is excluded and time the callback itself awaited is not:
+  - rolldown-plugin-dts:generate load (90%, 2.9s, 119 calls)
+Those rows are 90% of the build; the rest of the 99% is below.
+Not measurable — 3 hooks whose calls overlap, so elapsed time covers work other calls were doing. Profile with `node --cpu-prof`:
+  - tsdown:deps resolveId (673 calls)
+  - rolldown-plugin-dts:resolver resolveId (790 calls)
+  - rolldown-plugin-dts:fake-js transform (119 calls)
+See https://rolldown.rs/reference/InputOptions.checks#plugintimings for more details.
+
+[tsdown-build] invocation 1/11 finished in 3.9s
+[tsdown-build] invocation 2/11 finished in 14.8s
+node_modules/.pnpm/baileys@7.0.0-rc14_audio-decode@2.2.3_supports-color@10.2.2/node_modules/baileys/lib/Utils/messages-media.js (18:85) [UNRESOLVED_IMPORT] Could not resolve 'sharp' in node_modules/.pnpm/baileys@7.0.0-rc14_audio-decode@2.2.3_supports-color@10.2.2/node_modules/baileys/lib/Utils/messages-media.js
+    ╭─[ node_modules/.pnpm/baileys@7.0.0-rc14_audio-decode@2.2.3_supports-color@10.2.2/node_modules/baileys/lib/Utils/messages-media.js:18:86 ]
+    │
+ 18 │     const [jimp, sharp] = await Promise.all([import('jimp').catch(() => { }), import('sharp').catch(() => { })]);
+    │                                                                                      ───┬───  
+    │                                                                                         ╰───── Module not found, treating it as an external dependency
+────╯
+
+node_modules/.pnpm/playwright-core@1.62.1/node_modules/playwright-core/lib/coreBundle.js (65821:28) [EVAL] Use of direct `eval` function is strongly discouraged as it poses security risks and may cause issues with minification.
+       ╭─[ node_modules/.pnpm/playwright-core@1.62.1/node_modules/playwright-core/lib/coreBundle.js:65821:29 ]
+       │
+ 65821 │               const value = eval(`(${expr})`);
+       │                             ──┬─  
+       │                               ╰─── Use of direct `eval` here.
+       │ 
+       │ Help: Consider using indirect eval. For more information, check the documentation: https://rolldown.rs/guide/troubleshooting#avoiding-direct-eval
+───────╯
+
+node_modules/.pnpm/playwright-core@1.62.1/node_modules/playwright-core/lib/coreBundle.js (65828:28) [EVAL] Use of direct `eval` function is strongly discouraged as it poses security risks and may cause issues with minification.
+       ╭─[ node_modules/.pnpm/playwright-core@1.62.1/node_modules/playwright-core/lib/coreBundle.js:65828:29 ]
+       │
+ 65828 │               const value = eval(`(${expr})`);
+       │                             ──┬─  
+       │                               ╰─── Use of direct `eval` here.
+       │ 
+       │ Help: Consider using indirect eval. For more information, check the documentation: https://rolldown.rs/guide/troubleshooting#avoiding-direct-eval
+───────╯
+
+node_modules/.pnpm/web-tree-sitter@0.26.13/node_modules/web-tree-sitter/web-tree-sitter.js (2343:30) [EVAL] Use of direct `eval` function is strongly discouraged as it poses security risks and may cause issues with minification.
+      ╭─[ node_modules/.pnpm/web-tree-sitter@0.26.13/node_modules/web-tree-sitter/web-tree-sitter.js:2343:31 ]
+      │
+ 2343 │           ASM_CONSTS[start] = eval(func);
+      │                               ──┬─  
+      │                                 ╰─── Use of direct `eval` here.
+      │ 
+      │ Help: Consider using indirect eval. For more information, check the documentation: https://rolldown.rs/guide/troubleshooting#avoiding-direct-eval
+──────╯
+
+node_modules/.pnpm/web-tree-sitter@0.26.13/node_modules/web-tree-sitter/web-tree-sitter.js (2366:32) [EVAL] Use of direct `eval` function is strongly discouraged as it poses security risks and may cause issues with minification.
+      ╭─[ node_modules/.pnpm/web-tree-sitter@0.26.13/node_modules/web-tree-sitter/web-tree-sitter.js:2366:33 ]
+      │
+ 2366 │           moduleExports[name] = eval(func);
+      │                                 ──┬─  
+      │                                   ╰─── Use of direct `eval` here.
+      │ 
+      │ Help: Consider using indirect eval. For more information, check the documentation: https://rolldown.rs/guide/troubleshooting#avoiding-direct-eval
+──────╯
+
+[tsdown-build] invocation 3/11 finished in 11.9s
+[tsdown-build] invocation 4/11 finished in 15.1s
+[tsdown-build] still running pid=39284; no output for 30s
+[tsdown-build] invocation 5/11 finished in 32.4s
+[tsdown-build] still running pid=39504; no output for 30s
+[tsdown-build] invocation 6/11 finished in 36.4s
+[tsdown-build] invocation 7/11 finished in 25.0s
+[tsdown-build] invocation 8/11 finished in 28.0s
+[tsdown-build] invocation 9/11 finished in 27.1s
+[tsdown-build] invocation 10/11 finished in 26.7s
+[tsdown-build] still running pid=40341; no output for 30s
+[tsdown-build] invocation 11/11 finished in 36.8s
+[build-all] tsdown done in 4m 18.5s
+[build-all] external-plugins:local-dist
+[plugin-npm-runtime-build] build assets diffs: node --import tsx ../../scripts/build-diffs-viewer-runtime.mts curated
+[plugin-npm-runtime-build] build assets diffs-language-pack: node --import tsx ../../scripts/build-diffs-viewer-runtime.mts full
+[plugin-npm-runtime-build] build assets discord: node --import tsx ../../scripts/build-discord-activity-sdk.mts
+[external-plugin-local-dist] built 90 plugins in 15188ms
+[build-all] external-plugins:local-dist done in 15.6s
+[build-all] check-cli-bootstrap-imports
+CLI bootstrap import guard passed.
+[build-all] check-cli-bootstrap-imports done in 20.9s
+[build-all] plugins:assets:copy
+$ node --import ./scripts/tsx.mjs scripts/bundled-plugin-assets.mts --phase copy
+[browser] copy: node scripts/copy-chrome-extension.mjs
+[canvas] copy: node scripts/copy-a2ui.mjs
+[build-all] plugins:assets:copy done in 683ms
+[build-all] runtime-postbuild
+[plugin-control-plane-loads] verified 53 built modules with native require and checked doctor closures
+runtime-postbuild: 12 phases completed in 9197ms (slowest: built plugin control-plane loads 5197ms)
+[build-all] runtime-postbuild done in 10.1s
+[build-all] build-stamp
+[build-all] build-stamp done in 195ms
+[build-all] runtime-postbuild-stamp
+[build-all] runtime-postbuild-stamp done in 197ms
+[build-all] phase timings: total 5m 7.7s; slowest tsdown 4m 18.5s; check-cli-bootstrap-imports 20.9s; external-plugins:local-dist 15.6s; runtime-postbuild 10.1s; plugins:assets:build 1.62s; plugins:assets:copy 683ms; runtime-postbuild-stamp 197ms; build-stamp 195ms
+OpenClaw 2026.8.1 (7d00984)
+[PLUGIN_TIMINGS] Your build spent 99% of 3.3s inside plugin hooks (3.2s).
+Measured inside the callback, so queue time is excluded and time the callback itself awaited is not:
+  - rolldown-plugin-dts:generate load (90%, 3.0s, 119 calls)
+Those rows are 90% of the build; the rest of the 99% is below.
+Not measurable — 3 hooks whose calls overlap, so elapsed time covers work other calls were doing. Profile with `node --cpu-prof`:
+  - tsdown:deps resolveId (673 calls)
+  - rolldown-plugin-dts:resolver resolveId (790 calls)
+  - rolldown-plugin-dts:fake-js transform (119 calls)
+See https://rolldown.rs/reference/InputOptions.checks#plugintimings for more details.
+
+[tsdown-build] invocation 1/1 finished in 3.7s
+[test] starting test/vitest/vitest.e2e.config.ts
+
+ RUN  v4.1.11 <HOME>/Desktop/oss/<WORKTREE>
+
+
+ RUN  v4.1.11 <HOME>/Desktop/oss/<WORKTREE>
+
+[vitest-workers] prepared 792489549214 in 4592ms (7552 inputs, 3348 outputs)
+[vitest] still running with no output for 30000ms.
+ ✓ src/gateway/gateway.test.ts > gateway e2e > pairs the local CLI before a runtime-token loopback gateway becomes ready 24622ms
+ ✓ src/gateway/gateway.test.ts > gateway e2e > preserves generated auth across a safe direct gateway reload 3609ms
+ ✓ src/gateway/gateway.test.ts > gateway e2e > preserves explicit-override auth across a safe direct gateway reload 643ms
+ ✓ src/gateway/gateway.test.ts > gateway e2e > preserves secret-ref-override auth across a safe direct gateway reload 580ms
+ ✓ src/gateway/gateway.test.ts > gateway e2e > preserves runtime-overrides auth across a safe direct gateway reload 615ms
+ ✓ src/gateway/gateway.test.ts > gateway e2e > refreshes direct hook target policy after hot reload 1188ms
+ ✓ src/gateway/gateway.test.ts > gateway e2e > re-resolves a startup auth SecretRef override when secrets reload 842ms
+ ✓ src/gateway/gateway.test.ts > gateway e2e > preserves runtime-seeded Control UI origins across a safe direct reload 584ms
+ ✓ src/gateway/gateway.test.ts > gateway e2e > accepts a gateway agent request over ws and returns a run id 649ms
+ ✓ src/gateway/gateway.test.ts > gateway e2e > does not reload workspace plugins when POST /tools/invoke rebuilds tools for the same workspace 396ms
+ ✓ src/gateway/gateway.test.ts > gateway e2e > runs wizard over ws and writes auth token config 551ms
+ ✓ src/gateway/gateway.test.ts > gateway e2e > returns targeted channel resolution errors without wizard or config effects 352ms
+ ✓ src/gateway/gateway.test.ts > gateway e2e > ignores env-driven plugin auto-enable in minimal gateway mode 156ms
+ ✓ src/gateway/gateway.test.ts (13 tests) 34794ms
+     ✓ pairs the local CLI before a runtime-token loopback gateway becomes ready  24622ms
+     ✓ preserves generated auth across a safe direct gateway reload  3609ms
+     ✓ preserves explicit-override auth across a safe direct gateway reload  643ms
+     ✓ preserves secret-ref-override auth across a safe direct gateway reload  580ms
+     ✓ preserves runtime-overrides auth across a safe direct gateway reload  615ms
+     ✓ refreshes direct hook target policy after hot reload  1188ms
+     ✓ re-resolves a startup auth SecretRef override when secrets reload  842ms
+     ✓ preserves runtime-seeded Control UI origins across a safe direct reload  584ms
+     ✓ accepts a gateway agent request over ws and returns a run id  649ms
+     ✓ does not reload workspace plugins when POST /tools/invoke rebuilds tools for the same workspace  396ms
+     ✓ runs wizard over ws and writes auth token config  551ms
+     ✓ returns targeted channel resolution errors without wizard or config effects  352ms
+
+ Test Files  1 passed (1)
+      Tests  13 passed (13)
+   Start at  15:52:46
+   Duration  46.63s (transform 36.34s, setup 737ms, import 10.27s, tests 34.79s, environment 0ms)
+
+
+ Test Files  1 passed (1)
+      Tests  13 passed (13)
+   Start at  15:52:46
+   Duration  46.64s (transform 36.34s, setup 737ms, import 10.27s, tests 34.79s, environment 0ms)
+
+[vitest-workers] verifying completed generation before cleanup
+[test] passed 1 Vitest shard in 362.24s

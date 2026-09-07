@@ -1,0 +1,50 @@
+[test] preparing E2E runtime before Vitest workers
+OpenClaw 2026.8.1 (7d00984)
+[tsdown-build] invocation 1/1 finished in 3.2s
+[test] starting test/vitest/vitest.e2e.config.ts
+
+ RUN  v4.1.11 <HOME>/Desktop/oss/<WORKTREE>
+
+
+ RUN  v4.1.11 <HOME>/Desktop/oss/<WORKTREE>
+
+[vitest-workers] prepared 792489549214 in 3316ms (7552 inputs, 3348 outputs)
+ ✓ src/gateway/gateway.test.ts > gateway e2e > pairs the local CLI before a runtime-token loopback gateway becomes ready 7031ms
+ ✓ src/gateway/gateway.test.ts > gateway e2e > preserves generated auth across a safe direct gateway reload 1374ms
+ ✓ src/gateway/gateway.test.ts > gateway e2e > preserves explicit-override auth across a safe direct gateway reload 569ms
+ ✓ src/gateway/gateway.test.ts > gateway e2e > preserves secret-ref-override auth across a safe direct gateway reload 584ms
+ ✓ src/gateway/gateway.test.ts > gateway e2e > preserves runtime-overrides auth across a safe direct gateway reload 614ms
+ ✓ src/gateway/gateway.test.ts > gateway e2e > refreshes direct hook target policy after hot reload 1073ms
+ ✓ src/gateway/gateway.test.ts > gateway e2e > re-resolves a startup auth SecretRef override when secrets reload 525ms
+ ✓ src/gateway/gateway.test.ts > gateway e2e > preserves runtime-seeded Control UI origins across a safe direct reload 540ms
+ ✓ src/gateway/gateway.test.ts > gateway e2e > accepts a gateway agent request over ws and returns a run id 556ms
+ ✓ src/gateway/gateway.test.ts > gateway e2e > does not reload workspace plugins when POST /tools/invoke rebuilds tools for the same workspace 396ms
+ ✓ src/gateway/gateway.test.ts > gateway e2e > runs wizard over ws and writes auth token config 532ms
+ ✓ src/gateway/gateway.test.ts > gateway e2e > returns targeted channel resolution errors without wizard or config effects 286ms
+ ✓ src/gateway/gateway.test.ts > gateway e2e > ignores env-driven plugin auto-enable in minimal gateway mode 159ms
+ ✓ src/gateway/gateway.test.ts (13 tests) 14242ms
+     ✓ pairs the local CLI before a runtime-token loopback gateway becomes ready  7031ms
+     ✓ preserves generated auth across a safe direct gateway reload  1374ms
+     ✓ preserves explicit-override auth across a safe direct gateway reload  569ms
+     ✓ preserves secret-ref-override auth across a safe direct gateway reload  584ms
+     ✓ preserves runtime-overrides auth across a safe direct gateway reload  614ms
+     ✓ refreshes direct hook target policy after hot reload  1073ms
+     ✓ re-resolves a startup auth SecretRef override when secrets reload  525ms
+     ✓ preserves runtime-seeded Control UI origins across a safe direct reload  540ms
+     ✓ accepts a gateway agent request over ws and returns a run id  556ms
+     ✓ does not reload workspace plugins when POST /tools/invoke rebuilds tools for the same workspace  396ms
+     ✓ runs wizard over ws and writes auth token config  532ms
+
+ Test Files  1 passed (1)
+      Tests  13 passed (13)
+   Start at  15:59:52
+   Duration  20.75s (transform 9.83s, setup 123ms, import 5.93s, tests 14.24s, environment 0ms)
+
+
+ Test Files  1 passed (1)
+      Tests  13 passed (13)
+   Start at  15:59:52
+   Duration  20.75s (transform 9.83s, setup 123ms, import 5.93s, tests 14.24s, environment 0ms)
+
+[vitest-workers] verifying completed generation before cleanup
+[test] passed 1 Vitest shard in 27.52s

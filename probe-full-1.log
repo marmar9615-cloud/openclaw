@@ -1,0 +1,60 @@
+[test] preparing E2E runtime before Vitest workers
+OpenClaw 2026.8.1 (7d00984)
+[PLUGIN_TIMINGS] Your build spent 99% of 3.6s inside plugin hooks (3.5s).
+Measured inside the callback, so queue time is excluded and time the callback itself awaited is not:
+  - rolldown-plugin-dts:generate load (85%, 3.0s, 119 calls)
+Those rows are 85% of the build; the rest of the 99% is below.
+Not measurable — 3 hooks whose calls overlap, so elapsed time covers work other calls were doing. Profile with `node --cpu-prof`:
+  - tsdown:deps resolveId (673 calls)
+  - rolldown-plugin-dts:resolver resolveId (790 calls)
+  - rolldown-plugin-dts:fake-js transform (119 calls)
+See https://rolldown.rs/reference/InputOptions.checks#plugintimings for more details.
+
+[tsdown-build] invocation 1/1 finished in 4.0s
+[test] starting test/vitest/vitest.e2e.config.ts
+
+ RUN  v4.1.11 <HOME>/Desktop/oss/<WORKTREE>
+
+
+ RUN  v4.1.11 <HOME>/Desktop/oss/<WORKTREE>
+
+[vitest-workers] prepared 792489549214 in 4396ms (7552 inputs, 3348 outputs)
+ ✓ src/gateway/gateway.test.ts > gateway e2e > pairs the local CLI before a runtime-token loopback gateway becomes ready 8150ms
+ ✓ src/gateway/gateway.test.ts > gateway e2e > preserves generated auth across a safe direct gateway reload 1525ms
+ ✓ src/gateway/gateway.test.ts > gateway e2e > preserves explicit-override auth across a safe direct gateway reload 573ms
+ ✓ src/gateway/gateway.test.ts > gateway e2e > preserves secret-ref-override auth across a safe direct gateway reload 575ms
+ ✓ src/gateway/gateway.test.ts > gateway e2e > preserves runtime-overrides auth across a safe direct gateway reload 655ms
+ ✓ src/gateway/gateway.test.ts > gateway e2e > refreshes direct hook target policy after hot reload 1206ms
+ ✓ src/gateway/gateway.test.ts > gateway e2e > re-resolves a startup auth SecretRef override when secrets reload 545ms
+ ✓ src/gateway/gateway.test.ts > gateway e2e > preserves runtime-seeded Control UI origins across a safe direct reload 576ms
+ ✓ src/gateway/gateway.test.ts > gateway e2e > accepts a gateway agent request over ws and returns a run id 644ms
+ ✓ src/gateway/gateway.test.ts > gateway e2e > does not reload workspace plugins when POST /tools/invoke rebuilds tools for the same workspace 421ms
+ ✓ src/gateway/gateway.test.ts > gateway e2e > runs wizard over ws and writes auth token config 538ms
+ ✓ src/gateway/gateway.test.ts > gateway e2e > returns targeted channel resolution errors without wizard or config effects 287ms
+ ✓ src/gateway/gateway.test.ts > gateway e2e > ignores env-driven plugin auto-enable in minimal gateway mode 151ms
+ ✓ src/gateway/gateway.test.ts (13 tests) 15848ms
+     ✓ pairs the local CLI before a runtime-token loopback gateway becomes ready  8150ms
+     ✓ preserves generated auth across a safe direct gateway reload  1525ms
+     ✓ preserves explicit-override auth across a safe direct gateway reload  573ms
+     ✓ preserves secret-ref-override auth across a safe direct gateway reload  575ms
+     ✓ preserves runtime-overrides auth across a safe direct gateway reload  655ms
+     ✓ refreshes direct hook target policy after hot reload  1206ms
+     ✓ re-resolves a startup auth SecretRef override when secrets reload  545ms
+     ✓ preserves runtime-seeded Control UI origins across a safe direct reload  576ms
+     ✓ accepts a gateway agent request over ws and returns a run id  644ms
+     ✓ does not reload workspace plugins when POST /tools/invoke rebuilds tools for the same workspace  421ms
+     ✓ runs wizard over ws and writes auth token config  538ms
+
+ Test Files  1 passed (1)
+      Tests  13 passed (13)
+   Start at  15:57:30
+   Duration  24.04s (transform 12.06s, setup 160ms, import 7.54s, tests 15.85s, environment 0ms)
+
+
+ Test Files  1 passed (1)
+      Tests  13 passed (13)
+   Start at  15:57:30
+   Duration  24.04s (transform 12.06s, setup 160ms, import 7.54s, tests 15.85s, environment 0ms)
+
+[vitest-workers] verifying completed generation before cleanup
+[test] passed 1 Vitest shard in 31.75s

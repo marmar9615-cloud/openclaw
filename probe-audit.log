@@ -1,0 +1,13 @@
+PASS: exact head; probe additions removed reproduce HEAD byte-for-byte; only target test file changed.
+{
+  "head": "7d0098415ba17bf1f21af2cf6ff5977bb8415f86",
+  "platform": "darwin",
+  "release": "27.0.0",
+  "arch": "arm64",
+  "logicalCores": 10,
+  "physicalCores": "10",
+  "memoryBytes": 34359738368,
+  "node": "v26.5.0",
+  "pnpm": "12.1.0",
+  "macOS": "27.0"
+}

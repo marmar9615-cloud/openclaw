@@ -1,0 +1,5 @@
+PASS: exact HEAD, no staged or unstaged tracked changes, status empty except permitted install marker.
+PASS: baseline patch removes exactly the requested four lines in one hunk.
+PASS: 30 unique run records with exits, commands, gate clearances and timestamps; 25 unique finite counter samples.
+PASS: all 50 CPU burner PIDs were logged as cleaned up and are no longer present.
+Run outcomes remain independently recorded in each .exit file; no result is excluded by this audit.

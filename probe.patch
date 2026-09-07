@@ -1,0 +1,43 @@
+diff --git a/src/gateway/gateway.test.ts b/src/gateway/gateway.test.ts
+index afaa1268d3c..c4cd64858db 100644
+--- a/src/gateway/gateway.test.ts
++++ b/src/gateway/gateway.test.ts
+@@ -726,11 +726,38 @@ module.exports = {
+       const { port, server } = await startLoopbackTokenGateway(token);
+ 
+       try {
++        const proofHelperResolvedMs = performance.now();
++        const proofHelperResolvedAt = new Date().toISOString();
++        const proofPreCount = await readCounterWithRetry(registerCountPath);
++        const proofPreSampleMs = performance.now();
++        const proofPreSampleAt = new Date().toISOString();
++        const proofWaitStartedMs = performance.now();
+         // The baseline counts startup's own workspace-plugin load, which the deferred
+         // sidecars publish. Without this the read races that load and the baseline moves.
+         await server.startupSettled;
++        const proofSettledMs = performance.now();
++        const proofSettledAt = new Date().toISOString();
+ 
+         const beforeCount = await readCounterWithRetry(registerCountPath);
++        const proofSettledSampleMs = performance.now();
++        const proofSettledSampleAt = new Date().toISOString();
++        await fs.appendFile(
++          "<HOME>/Desktop/oss/handoff/hunt-0904/oc-c1/p122981/probe-samples.jsonl",
++          `${JSON.stringify({
++            runId: process.env.P122981_RUN_ID,
++            head: "7d0098415ba17bf1f21af2cf6ff5977bb8415f86",
++            preCount: proofPreCount,
++            settledCount: beforeCount,
++            helperResolvedAt: proofHelperResolvedAt,
++            preSampleAt: proofPreSampleAt,
++            settledAt: proofSettledAt,
++            settledSampleAt: proofSettledSampleAt,
++            preReadMs: proofPreSampleMs - proofHelperResolvedMs,
++            waitMs: proofSettledMs - proofWaitStartedMs,
++            elapsedMs: proofSettledSampleMs - proofPreSampleMs,
++            settledReadMs: proofSettledSampleMs - proofSettledMs,
++          })}\n`,
++        );
+         expect(beforeCount).toBeGreaterThan(0);
+ 
+         const res = await fetch(`http://127.0.0.1:${port}/tools/invoke`, {

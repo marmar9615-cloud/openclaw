@@ -1,0 +1,2 @@
+PASS: all 30 commands, exits and test outcomes match the report; all 25 samples preserved; 865-character draft satisfies constraints.
+PASS: 249 redacted files have no current home directory or machine name; report artifact links resolve; final status log is empty.

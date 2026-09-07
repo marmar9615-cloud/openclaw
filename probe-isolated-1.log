@@ -1,0 +1,40 @@
+[test] preparing E2E runtime before Vitest workers
+OpenClaw 2026.8.1 (7d00984)
+[tsdown-build] invocation 1/1 finished in 3.1s
+[test] starting test/vitest/vitest.e2e.config.ts
+
+ RUN  v4.1.11 <HOME>/Desktop/oss/<WORKTREE>
+
+
+ RUN  v4.1.11 <HOME>/Desktop/oss/<WORKTREE>
+
+[vitest-workers] prepared 792489549214 in 2842ms (7552 inputs, 3348 outputs)
+ ↓ src/gateway/gateway.test.ts > gateway e2e > pairs the local CLI before a runtime-token loopback gateway becomes ready
+ ↓ src/gateway/gateway.test.ts > gateway e2e > preserves generated auth across a safe direct gateway reload
+ ↓ src/gateway/gateway.test.ts > gateway e2e > preserves explicit-override auth across a safe direct gateway reload
+ ↓ src/gateway/gateway.test.ts > gateway e2e > preserves secret-ref-override auth across a safe direct gateway reload
+ ↓ src/gateway/gateway.test.ts > gateway e2e > preserves runtime-overrides auth across a safe direct gateway reload
+ ↓ src/gateway/gateway.test.ts > gateway e2e > refreshes direct hook target policy after hot reload
+ ↓ src/gateway/gateway.test.ts > gateway e2e > re-resolves a startup auth SecretRef override when secrets reload
+ ↓ src/gateway/gateway.test.ts > gateway e2e > preserves runtime-seeded Control UI origins across a safe direct reload
+ ↓ src/gateway/gateway.test.ts > gateway e2e > accepts a gateway agent request over ws and returns a run id
+ ✓ src/gateway/gateway.test.ts > gateway e2e > does not reload workspace plugins when POST /tools/invoke rebuilds tools for the same workspace 7357ms
+ ↓ src/gateway/gateway.test.ts > gateway e2e > runs wizard over ws and writes auth token config
+ ↓ src/gateway/gateway.test.ts > gateway e2e > returns targeted channel resolution errors without wizard or config effects
+ ↓ src/gateway/gateway.test.ts > gateway e2e > ignores env-driven plugin auto-enable in minimal gateway mode
+ ✓ src/gateway/gateway.test.ts (13 tests | 12 skipped) 7361ms
+     ✓ does not reload workspace plugins when POST /tools/invoke rebuilds tools for the same workspace  7357ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed | 12 skipped (13)
+   Start at  16:02:16
+   Duration  13.41s (transform 9.15s, setup 138ms, import 5.44s, tests 7.36s, environment 0ms)
+
+
+ Test Files  1 passed (1)
+      Tests  1 passed | 12 skipped (13)
+   Start at  16:02:16
+   Duration  13.41s (transform 9.15s, setup 138ms, import 5.44s, tests 7.36s, environment 0ms)
+
+[vitest-workers] verifying completed generation before cleanup
+[test] passed 1 Vitest shard in 19.62s

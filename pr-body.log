@@ -1,0 +1,62 @@
+## What Problem This Solves
+
+A full-file run of `src/gateway/gateway.test.ts` deterministically fails one test on current `main`:
+
+```
+× gateway e2e > does not reload workspace plugins when POST /tools/invoke rebuilds tools
+  for the same workspace
+  AssertionError: expected 2 to be 1
+ Test Files  1 failed (1)
+      Tests  1 failed | 15 passed (16)          exit 1
+```
+
+The test passes in isolation and fails in the full-file run, which reads like a state leak from an earlier test. It is not one.
+
+## Why This Change Was Made
+
+Instrumenting the probe plugin's `register()` with timestamps shows the workspace plugin registers **twice in both orders**, from two different startup callers:
+
+- `loadAndActivateRootPluginRegistry` ← `loadGatewayPlugins` (`src/gateway/server-plugins.ts:536`) — gateway startup's root load
+- `refreshPreparedModelRuntimeSnapshotsNow` → `prepareWorkspacePluginRegistries` (`src/agents/prepared-model-runtime.inbound-registry.ts:60`) → `loadAgentRuntimePluginRegistryHandle` (`src/agents/runtime-plugins.ts:120`) — startup's sidecar work
+
+Test order changes only **when the second load lands relative to `startGatewayServer` resolving**:
+
+| order | startup duration | register #2 | `beforeCount` | result |
+|---|---|---|---|---|
+| isolated (cold module graph) | 5446 ms | 373 ms *before* resolve | 2 | passes |
+| full file (warm graph) | 280 ms | 103 ms *after* resolve | 1 | fails |
+
+So the isolated pass was **vacuous** — it only ever passed because the race happened to land the other way.
+
+Inserting a 1.5 s idle wait before the HTTP call gives `settledCountAfterIdle=2` *before* the fetch and `afterCount=2` after it: `POST /tools/invoke` adds **zero** plugin loads in either order. The endpoint the test is named for was never implicated; the assertion was sampling a moving startup baseline.
+
+Root cause is the helper's `sidecarStartup: "defer"`. With defer, `startGatewayPostAttachRuntime` does not await `sidecarsPromise` (`src/gateway/server-startup-post-attach.ts:1485`), so `startGatewayServer` resolves before `publishStartupModelRuntime` (`:656`) performs the second load. The test was authored **without** defer (`b98a6c223d`, #56101); `388dc56ba5` added it and introduced the race.
+
+## User Impact
+
+None at runtime — this is test-only, production LOC delta **0**. It removes a deterministic failure from the full-file `gateway.test.ts` run, which currently fails for anyone running that file locally or in a shard that selects it whole.
+
+The assertion is not weakened: the baseline is now the complete startup load count, so a genuine per-request plugin reload would still be caught. The helper's only other caller is the minimal-gateway test, where `minimalTestGateway` already short-circuits sidecars, so the change is a no-op there.
+
+## Evidence
+
+Verified on pristine `main` (`93cf912695`), full-file runs, real exit codes:
+
+```
+$ node scripts/run-vitest.mjs src/gateway/gateway.test.ts     # before
+ Test Files  1 failed (1)
+      Tests  1 failed | 15 passed (16)        exit 1     (548s)
+
+$ node scripts/run-vitest.mjs src/gateway/gateway.test.ts     # after
+ Test Files  1 passed (1)
+      Tests  16 passed (16)                   exit 0
+```
+
+Also green in the isolated order after the fix, so it does not simply trade one order for the other.
+
+`oxfmt --check` 0 · `run-oxlint.mjs` on the file 0 · `git diff --check` 0 · `check-changed.mjs --dry-run` → lane `coreTests`, 0.
+
+## Follow-up worth a maintainer decision (not changed here)
+
+Every gateway startup registers workspace plugins twice — once for the process-root registry, once for the prepared-model-runtime generation. That is pre-existing and unchanged by this PR. If the prepared-model-runtime generation could reuse the root registry, it would halve workspace-plugin `register()` work on every start; if the two generations are intentional, `src/agents/prepared-model-runtime.inbound-registry.ts:60` deserves a comment saying so. I left it alone — deciding it is a production architecture change well outside a test fix.
+
