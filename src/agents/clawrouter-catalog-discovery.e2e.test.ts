@@ -166,6 +166,7 @@ describe("ClawRouter cold prepared catalog", () => {
     }
     const result = await runPreparedModelCatalogWorkerRequest(value, {
       kind: "catalog",
+      syntheticAuth: [],
     });
     expect(result.status).toBe("ok");
     if (result.status !== "ok" || result.kind !== "catalog") {
@@ -180,7 +181,10 @@ describe("ClawRouter cold prepared catalog", () => {
       preparedRuntimeAuthModes: result.authModes,
     });
     const catalog = await buildModelsListResult({
-      context: { getRuntimeConfig: () => config } as GatewayRequestContext,
+      source: {
+        kind: "gateway",
+        context: { getRuntimeConfig: () => config } as GatewayRequestContext,
+      },
       agentId,
       params: { view: refreshedAuth ? "all" : "configured", preparedOnly: true },
       preloadedCatalog: { agentId, config, snapshot: result.snapshot },

@@ -152,6 +152,157 @@ describe("prepared workspace skill resources", () => {
     },
   );
 
+  it.runIf(process.platform !== "win32")(
+    "omits a discovered skill whose root becomes a broken symlink between turns",
+    async () => {
+      const workspace = await fs.realpath(temps.make("skill-stale-root-"));
+      const healthyDir = await writeSkill(workspace, "healthy");
+      const staleDir = await writeSkill(workspace, "stale");
+      const snapshot = loadSnapshot(workspace);
+      expect((await prepareSkillResourceDelivery(snapshot, () => {}))?.skills).toHaveLength(2);
+
+      await fs.rm(staleDir, { recursive: true });
+      await fs.symlink(path.join(workspace, "missing-stale-target"), staleDir, "dir");
+
+      await expect(prepareSkillResourceDelivery(snapshot, () => {})).resolves.toMatchObject({
+        skills: [{ name: "healthy" }],
+      });
+      await fs.rm(healthyDir, { recursive: true });
+      await fs.symlink(path.join(workspace, "missing-healthy-target"), healthyDir, "dir");
+      await expect(prepareSkillResourceDelivery(snapshot, () => {})).resolves.toEqual({
+        version: 1,
+        skills: [],
+      });
+      await expect(
+        prepareSkillResourceDelivery(snapshot, () => {}, [
+          { name: "stale", path: path.join(staleDir, "SKILL.md") },
+        ]),
+      ).rejects.toMatchObject({
+        code: "INVALID_BUNDLE",
+        message: expect.stringMatching(/skill="stale".*root=.*stale.*ENOENT/s),
+      });
+    },
+  );
+
+  it("names an unavailable explicit skill and root", async () => {
+    const workspace = await fs.realpath(temps.make("skill-missing-explicit-"));
+    await writeSkill(workspace, "visible");
+    const missingPath = path.join(workspace, "skills", "missing", "SKILL.md");
+
+    await expect(
+      prepareSkillResourceDelivery(loadSnapshot(workspace), () => {}, [
+        { name: "missing", path: missingPath },
+      ]),
+    ).rejects.toMatchObject({
+      code: "INVALID_BUNDLE",
+      message: expect.stringMatching(/skill="missing".*root=.*missing.*ENOENT/s),
+    });
+  });
+
+  it.runIf(process.platform !== "win32")(
+    "materializes contained instruction and executable aliases as regular skill files",
+    async () => {
+      const workspace = await fs.realpath(temps.make("skill-nested-link-"));
+      const directory = await writeSkill(workspace, "linked");
+      const instructions = "# Review instructions\nPreserve the user's changes.\n";
+      const script = "#!/bin/sh\nprintf ready\n";
+      await fs.writeFile(path.join(directory, "AGENTS.md"), instructions);
+      await fs.mkdir(path.join(directory, "scripts"));
+      await fs.writeFile(path.join(directory, "scripts/check.sh"), script, { mode: 0o700 });
+      await fs.symlink("AGENTS.md", path.join(directory, "CLAUDE.md"));
+      await fs.symlink("scripts/check.sh", path.join(directory, "check.sh"));
+      const delivery = await prepareSkillResourceDelivery(loadSnapshot(workspace), () => {});
+      const materialized = await materializeSkillResources(delivery!, () => {});
+      try {
+        const skill = materialized.snapshot.resolvedSkills![0]!;
+        for (const name of ["AGENTS.md", "CLAUDE.md"]) {
+          expect(await fs.readFile(path.join(skill.baseDir, name), "utf8")).toBe(instructions);
+          expect((await fs.lstat(path.join(skill.baseDir, name))).isFile()).toBe(true);
+        }
+        for (const name of ["scripts/check.sh", "check.sh"]) {
+          const target = path.join(skill.baseDir, name);
+          expect(await fs.readFile(target, "utf8")).toBe(script);
+          expect((await fs.lstat(target)).isFile()).toBe(true);
+          expect((await fs.stat(target)).mode & 0o777).toBe(0o500);
+        }
+      } finally {
+        await materialized.cleanup();
+      }
+    },
+  );
+
+  it
+    .runIf(process.platform !== "win32")
+    .each(["outside", "broken", "cycle", "directory", "hardlink", "excluded"] as const)(
+    "rejects %s skill aliases with selected skill diagnostics",
+    async (kind) => {
+      const workspace = await fs.realpath(temps.make("skill-unsafe-link-"));
+      const directory = await writeSkill(workspace, "linked");
+      const alias = path.join(directory, "linked-support");
+      if (kind === "hardlink") {
+        const target = path.join(directory, "support.txt");
+        await fs.writeFile(target, "hardlinked support");
+        await fs.link(target, alias);
+      } else {
+        let target = "missing";
+        if (kind === "outside") {
+          target = path.join(workspace, "outside.txt");
+          await fs.writeFile(target, "outside skill boundary");
+        } else if (kind === "cycle") {
+          target = "linked-support";
+        } else if (kind === "directory") {
+          target = "support";
+          await fs.mkdir(path.join(directory, target));
+        } else if (kind === "excluded") {
+          target = ".git/config";
+          await fs.mkdir(path.join(directory, ".git"));
+          await fs.writeFile(path.join(directory, target), "excluded repository metadata");
+        }
+        await fs.symlink(target, alias);
+      }
+      await expect(
+        prepareSkillResourceDelivery(loadSnapshot(workspace), () => {}),
+      ).rejects.toMatchObject({
+        code: "INVALID_BUNDLE",
+        message: expect.stringMatching(/skill="linked".*root=.*linked/s),
+      });
+    },
+  );
+
+  it.runIf(process.platform !== "win32")(
+    "rejects a file moved into an excluded tree while its alias is opening",
+    async () => {
+      const workspace = await fs.realpath(temps.make("skill-alias-race-"));
+      const directory = await writeSkill(workspace, "linked");
+      const target = path.join(directory, "support.txt");
+      const excluded = path.join(directory, ".git", "support.txt");
+      await fs.mkdir(path.dirname(excluded));
+      await fs.writeFile(target, "supporting instructions");
+      await fs.symlink("support.txt", path.join(directory, "alias.txt"));
+      const snapshot = loadSnapshot(workspace);
+      const originalOpen = fs.open;
+      let moved = false;
+      const open = vi.spyOn(fs, "open").mockImplementation(async (file, flags, mode) => {
+        const handle = await originalOpen(file, flags, mode);
+        if (file === target && !moved) {
+          moved = true;
+          await fs.rename(target, excluded);
+          await fs.symlink(".git/support.txt", target);
+        }
+        return handle;
+      });
+      try {
+        await expect(prepareSkillResourceDelivery(snapshot, () => {})).rejects.toMatchObject({
+          code: "INVALID_BUNDLE",
+          message: expect.stringContaining("link target is not an included regular file"),
+        });
+        expect(moved).toBe(true);
+      } finally {
+        open.mockRestore();
+      }
+    },
+  );
+
   it("preserves a loaded directory-name fallback and exact instruction and executable bytes", async () => {
     const workspace = await fs.realpath(temps.make("skill-resources-"));
     const directory = await writeSkill(workspace, "directory-name");

@@ -1,11 +1,12 @@
 // Applies command feature gates before command handlers execute.
+import { redactIdentifier } from "@openclaw/normalization-core/node-crypto";
+import { formatCommandOwnerHint } from "../../commands/doctor-command-owner.js";
 import {
   isCommandFlagEnabled,
   isRestartEnabled,
   type CommandFlagKey,
 } from "../../config/commands.flags.js";
 import { logVerbose } from "../../globals.js";
-import { redactIdentifier } from "../../logging/redact-identifier.js";
 import { isNativeCommandTurn, resolveCommandTurnContext } from "../command-turn-context.js";
 import type { ReplyPayload } from "../types.js";
 import type {
@@ -112,10 +113,15 @@ export function rejectNonOwnerCommand(
   logVerbose(
     `Ignoring ${commandLabel} from non-owner sender: ${redactIdentifier(params.command.senderId)}`,
   );
-  if (isNativeCommandTurn(resolveCommandTurnContext(params.ctx))) {
-    return commandReply("You are not authorized to use this command.");
+  if (!params.command.isAuthorizedSender) {
+    return rejectUnauthorizedCommand(params, commandLabel);
   }
-  return { shouldContinue: false };
+  const hint = formatCommandOwnerHint({
+    cfg: params.cfg,
+    channel: params.command.channel,
+    id: params.command.senderId,
+  });
+  return commandReply(`You are not authorized to use this owner-only command. ${hint}`);
 }
 
 export function requireGatewayClientScope(

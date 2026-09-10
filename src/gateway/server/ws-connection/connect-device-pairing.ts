@@ -28,6 +28,7 @@ import {
 import { roleScopesAllow } from "../../../shared/operator-scope-compat.js";
 import { isBrowserCopilotClient } from "../../../utils/message-channel.js";
 import { pruneSupersededSilentPairingsAfterApproval } from "../../device-pairing-prune.js";
+import { retireDeviceTokenClients } from "../../device-token-client-lifecycle.js";
 import { normalizeNodeHostCompatibilityMetadata } from "../../node-legacy-protocol-filter.js";
 import { isScopelessNodePairingRequest } from "../../node-pairing-auto-approve.js";
 import { normalizeChromeExtensionOrigin } from "../../origin-check.js";
@@ -37,6 +38,7 @@ import {
   applyConnectionScopeCap,
   isStartupNodeBootstrapConnect,
   rejectGatewayStartupConnect,
+  resolveGatewayConnectPolicyFailure,
 } from "./connect-admission.js";
 import {
   pairedDeviceAllowsBootstrapProfile,
@@ -89,6 +91,8 @@ export async function authorizeGatewayConnectDevice(
     skipLocalBackendSelfPairing,
     controlUiPairingKind,
   } = state;
+  const isConnectAuthorizationCurrent = () =>
+    resolveGatewayConnectPolicyFailure(context, state) === undefined;
   const failPairingHandshake = (params: {
     message: string;
     details?:
@@ -278,12 +282,18 @@ export async function authorizeGatewayConnectDevice(
             accessMetadata: clientAccessMetadata,
             approvedVia: "trusted-proxy",
             autoApproveNewDeviceScopes: trustedProxyApprovalScopes,
+            isApprovalCurrent: isConnectAuthorizationCurrent,
           });
         } else if (plan.bootstrapApprovalProfile) {
           approved = await approveBootstrapDevicePairing(
             pairing.request.requestId,
             plan.bootstrapApprovalProfile,
-            { accessMetadata: clientAccessMetadata },
+            {
+              accessMetadata: clientAccessMetadata,
+              isApprovalCurrent: isConnectAuthorizationCurrent,
+              onTokensReplaced: (deviceId, roles) =>
+                retireDeviceTokenClients(requestContext, deviceId, roles, "device-token-rotated"),
+            },
           );
         } else if (plan.localApproval) {
           approved = await approveDevicePairing(pairing.request.requestId, {
@@ -304,6 +314,7 @@ export async function authorizeGatewayConnectDevice(
               const currentConfig = getRuntimeConfigSnapshot();
               if (
                 !currentConfig ||
+                !isConnectAuthorizationCurrent() ||
                 pending.deviceId !== device.id ||
                 pending.publicKey !== devicePublicKey ||
                 (plan.localApproval === "trusted-cidr" && !isScopelessNodePairingRequest(pending))
@@ -331,7 +342,7 @@ export async function authorizeGatewayConnectDevice(
           }
           if (trustedProxyApprovalScopes !== null && plan.trustedProxyUser) {
             logGateway.warn(
-              `security audit: trusted-proxy browser device auto-approved user=${formatForLog(plan.trustedProxyUser)} device=${formatForLog(approved.device.deviceId.slice(0, 12))} scopes=${formatAuditList(scopes)}`,
+              `security audit: trusted-proxy operator device auto-approved user=${formatForLog(plan.trustedProxyUser)} device=${formatForLog(approved.device.deviceId.slice(0, 12))} scopes=${formatAuditList(scopes)}`,
             );
           } else {
             logGateway.info(
@@ -420,17 +431,20 @@ export async function authorizeGatewayConnectDevice(
           role === "node" &&
           scopes.length === 0 &&
           !existingPairedDevice;
-        // Keep the node retrying while a detached approval can still land
-        // (bootstrap redemption or a running ssh-verify probe); default
-        // pairing-required behavior pauses the client reconnect loop.
-        const retryWhileDetachedApprovalPending =
-          retryAfterBootstrapPairingApproval || sshVerifyStarted;
+        const retryWhileControlUiApprovalPending =
+          state.isControlUi && role === "operator" && Boolean(recoveryRequestId);
+        // Retry detached node approvals and pending browser approvals without
+        // changing which connects require approval or what access they receive.
+        const retryWhileApprovalPending =
+          retryAfterBootstrapPairingApproval ||
+          sshVerifyStarted ||
+          retryWhileControlUiApprovalPending;
         failPairingHandshake({
           message: buildPairingConnectErrorMessage(reason),
           details: buildPairingConnectErrorDetails({
             reason,
             requestId: recoveryRequestId,
-            ...(retryWhileDetachedApprovalPending
+            ...(retryWhileApprovalPending
               ? {
                   recommendedNextStep: "wait_then_retry",
                   retryable: true,
@@ -542,6 +556,7 @@ export async function authorizeGatewayConnectDevice(
           state: { ...state, scopes, handoffBootstrapProfile },
           scopes,
           hasApprovedDeviceBaseline: hasServerApprovedDeviceTokenBaseline,
+          isIssuanceCurrent: isConnectAuthorizationCurrent,
         });
 
   return {

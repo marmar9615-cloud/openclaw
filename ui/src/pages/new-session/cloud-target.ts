@@ -3,7 +3,12 @@ import type { EnvironmentsListResult } from "../../../../packages/gateway-protoc
 import type { GatewayBrowserClient } from "../../api/gateway.ts";
 import { icons } from "../../components/icons.ts";
 import { t } from "../../i18n/index.ts";
-import type { DraftCloudProfile, DraftEnvironment, DraftMachineOption } from "./discovery.ts";
+import type {
+  DraftCloudProfile,
+  DraftEnvironment,
+  DraftMachineOption,
+  DraftOperatingSystem,
+} from "./discovery.ts";
 import { readDraftCloudProfiles, readDraftEnvironments } from "./discovery.ts";
 
 export async function requestPlaceCatalog(
@@ -46,22 +51,28 @@ export function renderSessionMenuItem(params: SessionMenuItemOptions, submitting
       ?disabled=${submitting || (params.disabled ?? false)}
       @click=${params.onSelect}
     >
-      ${params.icon
-        ? html`<span class="session-menu__icon" aria-hidden="true">${params.icon}</span>`
-        : nothing}
+      ${
+        params.icon
+          ? html`<span class="session-menu__icon" aria-hidden="true">${params.icon}</span>`
+          : nothing
+      }
       <span class="session-menu__text">${params.label}</span>
-      ${params.facts?.length || params.meter
-        ? html`<span class="new-session-page__menu-meta">
-            ${params.facts?.length
-              ? html`<span class="new-session-page__menu-facts">
-                  ${params.facts.map(
-                    (fact) => html`<span class="new-session-page__menu-fact">${fact}</span>`,
-                  )}
-                </span>`
-              : nothing}
-            ${params.meter ?? nothing}
-          </span>`
-        : nothing}
+      ${
+        params.facts?.length || params.meter
+          ? html`<span class="new-session-page__menu-meta">
+              ${
+                params.facts?.length
+                  ? html`<span class="new-session-page__menu-facts">
+                      ${params.facts.map(
+                        (fact) => html`<span class="new-session-page__menu-fact">${fact}</span>`,
+                      )}
+                    </span>`
+                  : nothing
+              }
+              ${params.meter ?? nothing}
+            </span>`
+          : nothing
+      }
       ${params.sub ? html`<span class="session-menu__sub">${params.sub}</span>` : nothing}
       <span class="session-menu__check" aria-hidden="true"
         >${params.checked ? icons.check : nothing}</span
@@ -151,6 +162,27 @@ export function renderCloudMachineMenuItems(params: {
         checked: params.selectedId === machine.id,
         keepOpen: true,
         onSelect: () => params.onSelect(machine.id),
+      },
+      params.submitting,
+    ),
+  );
+}
+
+export function renderCloudOsMenuItems(params: {
+  operatingSystems: readonly DraftOperatingSystem[];
+  selectedId: string;
+  submitting: boolean;
+  onSelect: (osId: string) => void;
+}) {
+  return params.operatingSystems.map((os) =>
+    renderSessionMenuItem(
+      {
+        value: `os:${os.id}`,
+        label: os.label,
+        facts: os.default ? [t("newSession.machineDefault")] : undefined,
+        checked: params.selectedId === os.id,
+        keepOpen: true,
+        onSelect: () => params.onSelect(os.id),
       },
       params.submitting,
     ),

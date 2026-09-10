@@ -138,13 +138,11 @@ const runtimeMocks = vi.hoisted(() => ({
       return modelEntry ? (modelEntry.input?.includes("image") ?? false) : true;
     },
   ),
-  sendDurableMessageBatch: vi.fn(
-    async (): Promise<DurableMessageBatchSendResult> => ({
-      status: "sent",
-      results: [],
-      receipt: { platformMessageIds: [], parts: [], sentAt: 1 },
-    }),
-  ),
+  sendDurableMessageBatch: vi.fn(async (): Promise<DurableMessageBatchSendResult> => ({
+    status: "sent",
+    results: [],
+    receipt: { platformMessageIds: [], parts: [], sentAt: 1 },
+  })),
   resolveSessionAgentId: vi.fn(() => "main"),
   resolveSessionModelRef: vi.fn(
     (_cfg: OpenClawConfig, entry?: { model?: string; modelProvider?: string }) => ({
@@ -1509,6 +1507,22 @@ describe("notifications changed events", () => {
       agentId: "ops",
       sessionKey: "agent:ops:main",
     });
+  });
+
+  it("compacts notification text without splitting surrogate pairs", async () => {
+    const ctx = buildCtx();
+    await handleNodeEvent(ctx, "node-n1", {
+      event: "notifications.changed",
+      payloadJSON: JSON.stringify({
+        change: "posted",
+        key: "notif-long",
+        title: ` \n${"A".repeat(117)}   🫠 tail `,
+      }),
+    });
+
+    expect(mockCallArg(enqueueSystemEventMock)).toBe(
+      `Notification posted (node=node-n1 key=notif-long): ${"A".repeat(117)} …`,
+    );
   });
 
   it("enqueues notifications.changed removed events", async () => {

@@ -1,5 +1,8 @@
 // Gateway service installer: writes config defaults, resolves credentials, and installs service definitions.
+import { constants as fsConstants } from "node:fs";
+import fs from "node:fs/promises";
 import { normalizeOptionalString } from "@openclaw/normalization-core/string-coerce";
+import { SUPPORTED_NODE_VERSIONS } from "../../../node-version.mjs";
 import { resolveNodeStartupTlsEnvironment } from "../../bootstrap/node-startup-env.js";
 import { buildGatewayInstallPlan } from "../../commands/daemon-install-helpers.js";
 import {
@@ -15,6 +18,8 @@ import { resolveGatewayPort } from "../../config/paths.js";
 import type { GatewayBindMode } from "../../config/types.gateway.js";
 import type { OpenClawConfig } from "../../config/types.js";
 import { OPENCLAW_WRAPPER_ENV_KEY, resolveOpenClawWrapperPath } from "../../daemon/program-args.js";
+import { isNodeRuntime } from "../../daemon/runtime-binary.js";
+import { resolveNodeRuntimeInfo, resolvePreferredNodePath } from "../../daemon/runtime-paths.js";
 import { readEmbeddedGatewayToken } from "../../daemon/service-audit.js";
 import { mergeGatewayServiceEnv } from "../../daemon/service-env-merge.js";
 import {
@@ -22,17 +27,14 @@ import {
   resolveManagedGatewayServiceCommand,
 } from "../../daemon/service-types.js";
 import { resolveGatewayService, type GatewayServiceCommandConfig } from "../../daemon/service.js";
-import {
-  hasSudoToRootSystemdUserManagerMismatch,
-  isNonFatalSystemdInstallProbeError,
-} from "../../daemon/systemd.js";
+import { isNonFatalSystemdInstallProbeError } from "../../daemon/systemd-exec.js";
 import { resolveGatewayAuth } from "../../gateway/auth.js";
 import {
   defaultGatewayBindMode,
   isLoopbackHost,
   resolveGatewayBindHost,
 } from "../../gateway/net.js";
-import { assertGatewayServiceMutationAllowed } from "../../infra/gateway-supervision.js";
+import { hasErrnoCode, isMissingPathError } from "../../infra/errno.js";
 import {
   isDangerousHostEnvOverrideVarName,
   isDangerousHostEnvVarName,
@@ -45,7 +47,7 @@ import { formatInvalidConfigPort, formatInvalidPortOption } from "../error-forma
 import { buildDaemonServiceSnapshot, installDaemonServiceAndEmit } from "./response.js";
 import {
   createDaemonInstallActionContext,
-  failIfNixDaemonInstallMode,
+  resolveDaemonInstallBlockMessage,
   parsePort,
 } from "./shared.js";
 import type { DaemonInstallOptions } from "./types.js";
@@ -161,24 +163,9 @@ export async function runDaemonInstall(opts: DaemonInstallOptions) {
       defaultRuntime.log(message);
     }
   };
-  if (failIfNixDaemonInstallMode(fail)) {
-    return;
-  }
-  try {
-    assertGatewayServiceMutationAllowed("install or rewrite the gateway service");
-  } catch (error) {
-    fail(`Gateway install blocked: ${String(error)}`);
-    return;
-  }
-  if (process.platform === "linux" && hasSudoToRootSystemdUserManagerMismatch(process.env)) {
-    fail(
-      "Gateway install blocked: Refusing a sudo-to-root systemd user-service install because " +
-        "OpenClaw state and service files would belong to root while systemctl targets the " +
-        "invoking user's manager. Rerun the same command without sudo. If [unsafe-permissions] " +
-        "blocked the non-sudo command, repair the reported directory with `chmod go-w <path>` " +
-        "and retry; do not use sudo or --force to bypass it. " +
-        "See https://docs.openclaw.ai/cli/gateway#install-identity.",
-    );
+  const installBlock = resolveDaemonInstallBlockMessage("gateway");
+  if (installBlock) {
+    fail(installBlock);
     return;
   }
 
@@ -288,8 +275,54 @@ export async function runDaemonInstall(opts: DaemonInstallOptions) {
     return;
   }
   let autoRefreshMessage: string | undefined;
+  let runtimePath: string | undefined;
+  const recordedNode = existingManagedCommand?.programArguments[0];
+  if (runtimeRaw === "node" && !wrapperPath && recordedNode && isNodeRuntime(recordedNode)) {
+    const recordedRuntime = await resolveNodeRuntimeInfo(recordedNode, installEnv);
+    if (recordedRuntime.status !== "probe-failed") {
+      const diagnostic = recordedRuntime.capabilityError ?? recordedRuntime.note;
+      if (diagnostic) {
+        warn(diagnostic);
+      }
+    }
+    const missingRuntime =
+      recordedRuntime.status === "probe-failed" &&
+      (await fs.access(recordedNode, fsConstants.X_OK).then(
+        () => false,
+        (error: unknown) => isMissingPathError(error) || hasErrnoCode(error, "EACCES"),
+      ));
+    const replacement = missingRuntime
+      ? `missing Gateway service Node (${recordedNode})`
+      : recordedRuntime.status === "unsupported"
+        ? `unsupported Gateway service Node ${recordedRuntime.version} (${recordedNode})`
+        : undefined;
+    if (replacement) {
+      try {
+        runtimePath = await resolvePreferredNodePath({
+          env: installEnv,
+          runtime: "node",
+          preferCurrentExecPath: true,
+        });
+        if (!runtimePath) {
+          fail(
+            `No supported Node runtime is available. Install Node ${SUPPORTED_NODE_VERSIONS}, then rerun openclaw gateway install.`,
+          );
+          return;
+        }
+      } catch (error) {
+        fail(`Gateway runtime selection failed: ${String(error)}`);
+        return;
+      }
+      autoRefreshMessage = `Replacing ${replacement} with ${runtimePath}; refreshing the install.`;
+    } else if (recordedRuntime.status === "probe-failed" && !opts.force) {
+      fail(
+        `${recordedRuntime.error.message} Reinstall with: ${formatCliCommand("openclaw gateway install --force")}.`,
+      );
+      return;
+    }
+  }
   if (loaded && !opts.force) {
-    autoRefreshMessage = await getGatewayServiceAutoRefreshMessage({
+    autoRefreshMessage ??= await getGatewayServiceAutoRefreshMessage({
       currentCommand: existingServiceCommand,
       env: process.env,
       installEnv,
@@ -304,14 +337,16 @@ export async function runDaemonInstall(opts: DaemonInstallOptions) {
       if (!(await assertWritable())) {
         return;
       }
-      warn(autoRefreshMessage);
     }
+  }
+  if (autoRefreshMessage) {
+    warn(autoRefreshMessage);
   }
 
   if (configSnapshot.valid && cfg.gateway?.mode === undefined) {
     const baseConfig = configSnapshot.sourceConfig ?? configSnapshot.config;
     await replaceConfigFile({
-      nextConfig: { ...baseConfig, gateway: { ...baseConfig.gateway, mode: "local" } },
+      sourceConfig: { ...baseConfig, gateway: { ...baseConfig.gateway, mode: "local" } },
       snapshot: configSnapshot,
       writeOptions: {
         baseSnapshot: configSnapshot,
@@ -343,13 +378,9 @@ export async function runDaemonInstall(opts: DaemonInstallOptions) {
 
   const tokenResolution = await resolveGatewayInstallToken({
     config: cfg,
-    configSnapshot,
-    configWriteOptions,
     env: installEnv,
     explicitToken: opts.token,
-    autoGenerateWhenMissing: true,
-    persistGeneratedToken: true,
-    persistence: { readConfigFileSnapshotForWrite, replaceConfigFile },
+    generateIfMissing: { snapshot: configSnapshot, writeOptions: configWriteOptions },
   });
   if (tokenResolution.unavailableReason) {
     fail(`Gateway install blocked: ${tokenResolution.unavailableReason}`);
@@ -364,6 +395,7 @@ export async function runDaemonInstall(opts: DaemonInstallOptions) {
       env: installEnv,
       port,
       runtime: runtimeRaw,
+      runtimePath,
       wrapperPath,
       existingCommand: existingServiceCommand,
       existingEnvironment: existingServiceEnv,

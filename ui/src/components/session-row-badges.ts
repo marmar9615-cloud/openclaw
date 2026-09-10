@@ -138,69 +138,79 @@ export function renderSessionRowBadges(params: {
     : placementLabel;
   const cloudLabel = [cloudPlacementLabel, diskSpaceLabel].filter(Boolean).join(" · ");
   return html`<span class="session-row-badges">
-    ${params.incognito
-      ? renderSessionRowBadge(
-          t("sessionsView.incognito"),
-          icons.lock,
-          "session-row-badge--incognito",
-        )
-      : nothing}
-    ${pullRequestLabel
-      ? renderSessionRowBadge(
-          pullRequestLabel,
-          pullRequestState === "merged" ? icons.gitMerge : icons.gitPullRequest,
-          "session-row-badge--pull-request",
-          0,
-          pullRequestState,
-        )
-      : nothing}
-    ${params.hasApproval
-      ? renderSessionRowBadge(
-          t("sessionsView.approvalNeeded"),
-          icons.alertTriangle,
-          "session-row-badge--approval",
-        )
-      : nothing}
-    ${attentionCount > 0
-      ? renderSessionRowBadge(
-          attentionLabel,
-          icons.alertTriangle,
-          "session-row-badge--attention",
-          attentionCount,
-        )
-      : nothing}
-    ${params.hasComposerDraft
-      ? renderSessionRowBadge(
-          t("sessionsView.unsentDraft"),
-          icons.pencil,
-          "session-row-badge--draft",
-        )
-      : nothing}
-    ${displayedPlacementState || hasWorkspaceConflict
-      ? renderSessionRowBadge(
-          cloudLabel,
-          icons.globe,
-          "session-row-badge--cloud",
-          0,
-          undefined,
-          displayedPlacementState,
-          diskSpaceStatus,
-          hasWorkspaceConflict ? workspaceConflictCount : 0,
-        )
-      : nothing}
+    ${
+      params.incognito
+        ? renderSessionRowBadge(
+            t("sessionsView.incognito"),
+            icons.lock,
+            "session-row-badge--incognito",
+          )
+        : nothing
+    }
+    ${
+      pullRequestLabel
+        ? renderSessionRowBadge(
+            pullRequestLabel,
+            pullRequestState === "merged" ? icons.gitMerge : icons.gitPullRequest,
+            "session-row-badge--pull-request",
+            0,
+            pullRequestState,
+          )
+        : nothing
+    }
+    ${
+      params.hasApproval
+        ? renderSessionRowBadge(
+            t("sessionsView.approvalNeeded"),
+            icons.alertTriangle,
+            "session-row-badge--approval",
+          )
+        : nothing
+    }
+    ${
+      attentionCount > 0
+        ? renderSessionRowBadge(
+            attentionLabel,
+            icons.alertTriangle,
+            "session-row-badge--attention",
+            attentionCount,
+          )
+        : nothing
+    }
+    ${
+      params.hasComposerDraft
+        ? renderSessionRowBadge(
+            t("sessionsView.unsentDraft"),
+            icons.pencil,
+            "session-row-badge--draft",
+          )
+        : nothing
+    }
+    ${
+      displayedPlacementState || hasWorkspaceConflict
+        ? renderSessionRowBadge(
+            cloudLabel,
+            icons.globe,
+            "session-row-badge--cloud",
+            0,
+            undefined,
+            displayedPlacementState,
+            diskSpaceStatus,
+            hasWorkspaceConflict ? workspaceConflictCount : 0,
+          )
+        : nothing
+    }
   </span>`;
 }
 
 export function resolveSidebarConnectionStatus(props: {
   offline: boolean;
+  phase?: ApplicationGatewaySnapshot["phase"];
   restartPending?: boolean;
   suspensionPhase?: ApplicationGatewaySnapshot["suspensionPhase"];
 }) {
   if (props.restartPending) {
     return "restarting";
-  }
-  if (props.offline) {
-    return "offline";
   }
   switch (props.suspensionPhase) {
     case "preparing":
@@ -209,7 +219,10 @@ export function resolveSidebarConnectionStatus(props: {
     case "prepared":
       return "suspended";
     default:
-      return null;
+      if (props.phase === "connecting" || props.phase === "starting") {
+        return "connecting";
+      }
+      return props.offline ? "offline" : null;
   }
 }
 
@@ -243,9 +256,9 @@ export function renderSidebarConnectionStatus(props: {
       <span class="sidebar-footer-bar__status-dot" aria-hidden="true"></span>${offline}<span
         class="sidebar-footer-bar__status-detail"
         >· ${t("connection.reconnecting")}</span
-      >${queued
-        ? html`<span class="sidebar-footer-bar__status-detail">· ${queued}</span>`
-        : nothing}
+      >${
+        queued ? html`<span class="sidebar-footer-bar__status-detail">· ${queued}</span>` : nothing
+      }
     </button>
   </openclaw-tooltip>`;
 }

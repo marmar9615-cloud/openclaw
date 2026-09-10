@@ -2,7 +2,8 @@ import fsp from "node:fs/promises";
 import { isDeepStrictEqual } from "node:util";
 import { normalizeCapabilityProviderId } from "../../plugins/provider-registry-shared.js";
 import type { WorkerExecutionMode, WorkerProfile, WorkerProvider } from "../../plugins/types.js";
-import { readWorkerProjectSnapshot } from "./project-preparation.js";
+import { createWorkerProjectPreparationIdentity } from "./preparation-identity.js";
+import { readWorkerProjectSetupRecipe, readWorkerProjectSnapshot } from "./project-preparation.js";
 import type { WorkerProviderLifecycleOptions } from "./provider-lifecycle.types.js";
 import { deriveEnvironmentIntent } from "./service-contract.js";
 import { requireInheritedWorkerProfileAuthorization } from "./service-validation.js";
@@ -14,6 +15,7 @@ type WorkerProviderIntentOptions = Pick<
   | "store"
   | "getConfig"
   | "projectNamespace"
+  | "prepareNodeArtifacts"
   | "isStopping"
   | "inState"
   | "withLock"
@@ -48,14 +50,17 @@ export function createWorkerProviderIntent(options: WorkerProviderIntentOptions)
         profileSnapshot: WorkerProfile;
       };
       machineClass?: string;
+      os?: string;
       executionMode?: WorkerExecutionMode;
       projectPath?: string;
+      runSetupScript?: boolean;
       signal?: AbortSignal;
     } = {},
   ) => {
     const {
       inherited: requestedInherited,
       machineClass,
+      os,
       executionMode,
       projectPath,
       signal,
@@ -71,6 +76,7 @@ export function createWorkerProviderIntent(options: WorkerProviderIntentOptions)
     }
     const provisionSnapshot = {
       ...(machineClass === undefined ? {} : { machineClass }),
+      ...(os === undefined ? {} : { os }),
       ...(executionMode === undefined ? {} : { executionMode }),
     };
     if (options.isStopping()) {
@@ -103,10 +109,11 @@ export function createWorkerProviderIntent(options: WorkerProviderIntentOptions)
               !isDeepStrictEqual(existing.profileSnapshot, {
                 ...inherited.profileSnapshot,
                 ...provisionSnapshot,
-                ...(existingProject ? { project: existingProject } : {}),
+                ...(existingProject ? { project: existing.profileSnapshot.project } : {}),
               }))) ||
           (inherited === undefined &&
             (existing.profileSnapshot.machineClass !== machineClass ||
+              existing.profileSnapshot.os !== os ||
               existing.profileSnapshot.executionMode !== executionMode))
         ) {
           throw serviceError("invalid_profile", "Idempotency key belongs to another profile");
@@ -161,11 +168,15 @@ export function createWorkerProviderIntent(options: WorkerProviderIntentOptions)
           ...provisionSnapshot,
         });
       }
+      let assertArtifactsCurrent: (() => void) | undefined;
       if (
         projectPath &&
         provider.supportsProjectPreparation?.(
           requireWorkerProfile(profileSnapshot.settings),
-          machineClass,
+          typeof profileSnapshot.machineClass === "string"
+            ? profileSnapshot.machineClass
+            : undefined,
+          typeof profileSnapshot.os === "string" ? profileSnapshot.os : undefined,
         )
       ) {
         if (!options.projectNamespace) {
@@ -184,8 +195,50 @@ export function createWorkerProviderIntent(options: WorkerProviderIntentOptions)
           throw serviceError("invalid_state", "Worker environment service is stopping");
         }
         if (project) {
-          profileSnapshot = { ...profileSnapshot, project };
+          const target = provider.resolvePreparationTarget?.(
+            requireWorkerProfile(profileSnapshot.settings),
+            typeof profileSnapshot.machineClass === "string"
+              ? profileSnapshot.machineClass
+              : undefined,
+            typeof profileSnapshot.os === "string" ? profileSnapshot.os : undefined,
+          );
+          const setupRecipe = target
+            ? await readWorkerProjectSetupRecipe(project, signal)
+            : undefined;
+          signal?.throwIfAborted();
+          // Only this caller can admit repository code before capture. Missing authority
+          // keeps the existing pristine-seed path; an explicit skip has a distinct cache.
+          if (
+            target &&
+            provider.requiresNodeEnrollment &&
+            options.prepareNodeArtifacts &&
+            (!setupRecipe || createOptions.runSetupScript !== undefined)
+          ) {
+            const prepared = await options.prepareNodeArtifacts(profileSnapshot, signal);
+            signal?.throwIfAborted();
+            prepared.assertCurrent();
+            assertArtifactsCurrent = prepared.assertCurrent;
+            const preparation = createWorkerProjectPreparationIdentity({
+              namespace: options.projectNamespace,
+              providerId,
+              profileId: normalizedProfileId,
+              profileSnapshot,
+              project,
+              target,
+              artifacts: prepared.artifacts,
+              setupRecipe,
+              runSetupScript: createOptions.runSetupScript,
+            });
+            profileSnapshot = { ...profileSnapshot, project: { ...project, preparation } };
+          } else {
+            profileSnapshot = { ...profileSnapshot, project };
+          }
         }
+      }
+      signal?.throwIfAborted();
+      assertArtifactsCurrent?.();
+      if (options.isStopping()) {
+        throw serviceError("invalid_state", "Worker environment service is stopping");
       }
       const intent = store.createIntent({
         environmentId,
