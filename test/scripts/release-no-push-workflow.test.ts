@@ -315,6 +315,60 @@ function executeParentFilterValidation(
 }
 
 describe("release validation no-push transport", () => {
+  it("scopes release Gateway capacity to the existing repo E2E runner input", () => {
+    const live = readWorkflow(LIVE_E2E);
+    for (const entry of [live.on?.workflow_call, live.on?.workflow_dispatch]) {
+      expect(entry?.inputs?.gateway_repo_e2e_use_github_hosted_runners).toMatchObject({
+        type: "boolean",
+        default: true,
+        required: false,
+      });
+    }
+    const release = readWorkflow(RELEASE_CHECKS);
+    expect(
+      job(release, "live_repo_e2e_release_checks").with?.gateway_repo_e2e_use_github_hosted_runners,
+    ).toBe(false);
+    expect(
+      job(release, "docker_e2e_release_checks").with?.gateway_repo_e2e_use_github_hosted_runners,
+    ).toBeUndefined();
+    expect(
+      job(release, "live_repo_e2e_release_checks").with?.use_github_hosted_runners,
+    ).toBeUndefined();
+  });
+
+  it.each([
+    [true, true],
+    [true, false],
+    [false, true],
+    [false, false],
+  ])(
+    "routes Gateway capacity without changing runtime routing (hosted=%s, gatewayHosted=%s)",
+    (hosted, gatewayHosted) => {
+      const live = readWorkflow(LIVE_E2E);
+      const repo = readWorkflow(".github/workflows/openclaw-repo-e2e-reusable.yml");
+      const inputs = {
+        use_github_hosted_runners: hosted,
+        gateway_repo_e2e_use_github_hosted_runners: gatewayHosted,
+      };
+      for (const [pipeline, expected] of [
+        ["validate_repo_e2e_gateway", hosted && gatewayHosted],
+        ["validate_repo_e2e_runtime", hosted],
+      ] as const) {
+        const expression = String(job(live, pipeline).with?.use_github_hosted_runners);
+        const resolved = runInNewContext(expression.slice(3, -2), { inputs });
+        expect(resolved).toBe(expected);
+        for (const phase of ["build", "test"]) {
+          const runner = job(repo, phase)["runs-on"]!;
+          expect(
+            runInNewContext(runner.slice(3, -2), {
+              inputs: { use_github_hosted_runners: resolved },
+            }),
+          ).toBe(expected ? "ubuntu-24.04" : "blacksmith-32vcpu-ubuntu-2404");
+        }
+      }
+    },
+  );
+
   it.each([
     ["openclaw/openclaw", "hybrid", false, "blacksmith-4vcpu-ubuntu-2404"],
     ["openclaw/openclaw", "github", false, "ubuntu-24.04"],
@@ -670,7 +724,7 @@ describe("release validation no-push transport", () => {
     },
     {
       phase: "candidate",
-      candidateArtifactJson: "{}",
+      candidateArtifactJson: '{"packagePublished":false}',
       installSmokeScheduled: "false",
       crossOsScheduled: "true",
       packageAcceptanceScheduled: "true",
@@ -1038,6 +1092,7 @@ describe("release validation no-push transport", () => {
       [PACKAGE_ACCEPTANCE, "docker_acceptance_registry"],
       [INSTALL_SMOKE, "install_smoke"],
       [SCHEDULED_LIVE, "live_and_openwebui_checks"],
+      [SCHEDULED_LIVE, "weekly_upgrade_survivors"],
       [UPDATE_MIGRATION, "update_migration"],
     ] as const;
     for (const [workflowPath, jobName] of readOnlyCalls) {
@@ -1314,6 +1369,13 @@ describe("release validation no-push transport", () => {
       "job.workflow_repository must be an owner/repository slug",
     );
     expect(workflowIdentity.run).toContain("job.workflow_sha must be a full lowercase commit SHA");
+    expect(step(validation, "Materialize selected-source contract resolver").with).toMatchObject({
+      repository: "${{ steps.workflow.outputs.workflow_repository }}",
+      ref: "${{ steps.workflow.outputs.workflow_sha }}",
+      path: ".release-harness",
+      "persist-credentials": false,
+      "sparse-checkout": "scripts/resolve-fs-safe-native-contract.mjs",
+    });
     const trustedCheckouts = Object.entries(workflow.jobs ?? {}).flatMap(([jobName, workflowJob]) =>
       (workflowJob.steps ?? [])
         .filter((candidate) => candidate.name?.startsWith("Checkout trusted "))
@@ -1754,13 +1816,21 @@ describe("release validation no-push transport", () => {
     expect(JSON.stringify(scheduled.jobs)).not.toContain("docker image push");
 
     const scheduledValidation = job(scheduled, "live_and_openwebui_checks");
+    const weeklyUpgradeSurvivors = job(scheduled, "weekly_upgrade_survivors");
     expect(permissionAt(scheduled.permissions, "packages", "none")).toBe("read");
     expectReadOnlyPackagePermission(scheduledValidation);
+    expectReadOnlyPackagePermission(weeklyUpgradeSurvivors);
     expect(scheduledValidation.with).toMatchObject({
       allow_unreleased_changelog: true,
       shared_image_artifact_namespace: "scheduled-live",
       shared_image_policy: "no-push-artifact",
     });
+    expect(weeklyUpgradeSurvivors.with).toMatchObject({
+      allow_unreleased_changelog: true,
+      shared_image_artifact_namespace: "scheduled-upgrade-survivors",
+      shared_image_policy: "no-push-artifact",
+    });
+    expect(weeklyUpgradeSurvivors.secrets).toBeUndefined();
 
     const dockerPrepare = readWorkflow(DOCKER_PREPARE);
     const attestedBuilds = Object.values(dockerPrepare.jobs ?? {}).flatMap((workflowJob) =>

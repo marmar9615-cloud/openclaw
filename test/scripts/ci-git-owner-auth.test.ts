@@ -88,23 +88,30 @@ it.skipIf(process.platform === "win32").each([
   50_000,
 );
 
-it.skipIf(process.platform === "win32")(
-  "Kova checkout is complete after its initial public fetch closes",
-  async () => {
+it.skipIf(process.platform === "win32").each([
+  { mode: "kova", failures: 0, succeeds: true, backoffs: [] },
+  { mode: "kova-retry", failures: 2, succeeds: true, backoffs: [5, 5] },
+  { mode: "kova-exhausted", failures: 3, succeeds: false, backoffs: [5, 5] },
+])(
+  "Kova authenticates source fetch and checkout with bounded retries ($mode)",
+  async ({ mode, failures, succeeds, backoffs }) => {
     const report = await runAuthFixture(
-      "kova",
+      mode,
       workflowScript("openclaw-performance.yml", "kova", "Install OCM and Kova"),
     );
-    expect(report.exitCode, report.stderr).toBe(0);
+    expect(report.exitCode === 0, report.stderr).toBe(succeeds);
     expect(report).toMatchObject({
-      checkoutComplete: true,
-      sessions: 1,
+      checkoutComplete: succeeds,
+      sessions: failures + (succeeds ? 2 : 0),
+      transientFailures: failures,
+      backoffs,
+      filteredFetch: succeeds,
+      shallowCheckout: succeeds,
       credentialPersisted: false,
     });
+    expect(report.requests.length).toBeGreaterThan(0);
     expect(
-      report.requests.every(
-        (request: { authorizationPresent: boolean }) => !request.authorizationPresent,
-      ),
+      report.requests.every((request: { authenticated: boolean }) => request.authenticated),
     ).toBe(true);
   },
   50_000,
