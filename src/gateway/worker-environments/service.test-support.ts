@@ -65,7 +65,7 @@ export const NODE_BOOTSTRAP: WorkerNodeEnrollment["nodeBootstrap"] = {
   openclawVersion: "2026.8.1",
   enabledPluginIds: ["runtime-plugin"],
 };
-export const BUNDLE_ARTIFACT: WorkerInstallationArtifact = {
+export const BUNDLE_ARTIFACT: Extract<WorkerInstallationArtifact, { install: "bundle" }> = {
   install: "bundle",
   bundleHash: BUNDLE_HASH,
   openclawVersion: "2026.7.2",
@@ -151,8 +151,9 @@ export function setupWorkerEnvironmentServiceSuite() {
   });
 
   afterEach(async () => {
-    await testState.service?.stop();
+    // Shutdown may schedule cleanup after a test leaves fake timers installed.
     vi.useRealTimers();
+    await testState.service?.stop();
     closeOpenClawStateDatabaseForTest();
     await fs.rm(testState.root, { recursive: true, force: true });
   });
@@ -192,7 +193,9 @@ export function createService(
       | "projectNamespace"
       | "resolveSshIdentity"
       | "ensureNodeWorkerBundle"
+      | "registerPreparedWorkspace"
       | "prepareNodeBootstrap"
+      | "prepareNodeArtifacts"
       | "prepareNodeRuntime"
       | "closeNodeRuntime"
       | "prepareNodeEnrollment"
@@ -207,6 +210,7 @@ export function createService(
       | "now"
       | "nodeTunnelManager"
       | "nodeDesktopCarrier"
+      | "nodePortalCarrier"
       | "placementStore"
       | "workerCredentialTtlMs"
     >
@@ -218,6 +222,9 @@ export function createService(
     resolveProvider: (providerId) =>
       testState.providersEnabled && providerId === provider.id ? provider : undefined,
     prepareInstallation: testState.prepareInstallation,
+    ...(provider.requiresNodeEnrollment
+      ? { prepareNodeBootstrap: async () => NODE_BOOTSTRAP.sha256 }
+      : {}),
     bootstrapWorker: testState.bootstrapWorker,
     resolveSshIdentity: async () => ({ kind: "path", path: "/keys/worker" }),
     generateWorkerCredential: () => CREDENTIAL,
@@ -533,11 +540,15 @@ export function placementHarness(
     .run(credentialHash, environmentId);
   identity.credentialHash = credentialHash;
   const placementStore = {
+    assertWorkerRuntimeRefresh: vi.fn(() => {
+      throw new Error("Cannot refresh a worker runtime while its turn is active");
+    }),
     readWorkerTurnClaim: vi.fn(() => claim),
     readWorkerTurnLiveAckCursor: vi.fn(() => 0),
     validateWorkerTurn: vi.fn(() => true),
     isWorkerTurnToolAuthorized: vi.fn(() => true),
     updateAckCursors: vi.fn(),
+    prepareWorkspaceResultOwnerRevocation: vi.fn(),
     registerTurnClaimClosedHandler: vi.fn(() => () => {}),
   };
   const workerService = createService(createProvider(), { ...serviceOptions, placementStore });

@@ -8,6 +8,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  TSDOWN_NON_SDK_DTS_CONFIG_GROUPS,
   TSDOWN_PACKAGE_CONFIG_GROUP,
   TSDOWN_UNIFIED_CONFIG_GROUP,
   TSDOWN_UNIFIED_DTS_CONFIG_GROUPS,
@@ -26,7 +27,9 @@ import {
   resolveTsdownBuildInvocations,
   resolveTsdownBuildPlan,
   resolveTsdownCleanOutputRoots,
+  runTsdownBuild,
   runTsdownBuildInvocation as runTsdownBuildInvocationImpl,
+  sanitizeTsdownBuildOutputRoots,
 } from "../../scripts/tsdown-build.mts";
 import { createFixtureLifetime } from "../helpers/fixture-lifetime.js";
 import {
@@ -48,10 +51,14 @@ const TEST_PHYSICAL_MEMORY_BYTES = 16 * 1024 * 1024 * 1024;
 // fixtures prove only their declared hierarchy instead of inheriting the runner's RAM.
 vi.spyOn(os, "totalmem").mockReturnValue(TEST_PHYSICAL_MEMORY_BYTES);
 const readFileSync = fs.readFileSync.bind(fs);
-vi.spyOn(fs, "readFileSync").mockImplementation((filePath, options) =>
-  filePath === "/proc/meminfo" && options === "utf8"
-    ? "MemTotal:       16777216 kB\nMemAvailable:   16777216 kB\n"
-    : readFileSync(filePath, options),
+vi.spyOn(fs, "readFileSync").mockImplementation(
+  (filePath, options?: BufferEncoding | fs.ReadFileSyncOptions | null) =>
+    filePath === "/proc/meminfo" && options === "utf8"
+      ? "MemTotal:       16777216 kB\nMemAvailable:   16777216 kB\n"
+      : readFileSync(
+          filePath,
+          typeof options === "string" ? { encoding: options } : (options ?? {}),
+        ),
 );
 const NO_MEMORY_LIMIT = {
   availableMemoryBytes: TEST_PHYSICAL_MEMORY_BYTES,
@@ -210,13 +217,25 @@ describe("resolveTsdownBuildInvocation", () => {
     );
   });
 
-  it("expands the full-build unified selector into one runtime and bounded declaration graphs", () => {
+  it.each([
+    {
+      label: "implicit unified declarations",
+      selected: [],
+      expected: TSDOWN_UNIFIED_DTS_CONFIG_GROUPS,
+    },
+    {
+      label: "explicit declaration subset",
+      selected: TSDOWN_NON_SDK_DTS_CONFIG_GROUPS,
+      expected: TSDOWN_NON_SDK_DTS_CONFIG_GROUPS,
+    },
+  ])("serializes runtime and $label without adding other groups", ({ selected, expected }) => {
     const results = resolveTsdownBuildInvocations({
       args: [
         "--config",
         "tsdown.config.ts",
         "--filter",
         TSDOWN_UNIFIED_CONFIG_GROUP,
+        ...selected.flatMap((group) => ["--filter", group]),
         "--format",
         "esm",
       ],
@@ -227,13 +246,13 @@ describe("resolveTsdownBuildInvocation", () => {
       ...NO_MEMORY_LIMIT,
     });
 
-    expect(results).toHaveLength(1 + TSDOWN_UNIFIED_DTS_CONFIG_GROUPS.length);
+    expect(results).toHaveLength(1 + expected.length);
     expect(
       results.map((result) => {
         const filterIndex = result.args.indexOf("--filter");
         return result.args[filterIndex + 1];
       }),
-    ).toEqual([TSDOWN_UNIFIED_CONFIG_GROUP, ...TSDOWN_UNIFIED_DTS_CONFIG_GROUPS]);
+    ).toEqual([TSDOWN_UNIFIED_CONFIG_GROUP, ...expected]);
     for (const result of results) {
       expect(result.args).toEqual(expect.arrayContaining(["--config", "tsdown.config.ts"]));
       expect(result.args).toEqual(expect.arrayContaining(["--format", "esm"]));
@@ -1922,6 +1941,85 @@ describe("resolveTsdownBuildInvocation", () => {
       await expect(fsPromises.readFile(coreFile, "utf8")).resolves.toBe("keep\n");
     }));
 
+  it("sanitizes only the declaration roots selected by a direct AI build", () =>
+    fixture.run(async () => {
+      const rootDir = createTempDir("openclaw-tsdown-selected-sanitize-");
+      const aiDeclaration = path.join(rootDir, "packages", "ai", "dist", "index.d.ts");
+      const rootDeclaration = path.join(rootDir, "dist", "index.d.ts");
+      const malformed = "export { __exportAll, publicApi };\n";
+      await fsPromises.mkdir(path.dirname(aiDeclaration), { recursive: true });
+      await fsPromises.mkdir(path.dirname(rootDeclaration), { recursive: true });
+      await fsPromises.writeFile(aiDeclaration, malformed);
+      await fsPromises.writeFile(rootDeclaration, malformed);
+
+      sanitizeTsdownBuildOutputRoots(["--config", "tsdown.ai.config.ts"], rootDir);
+
+      await expect(fsPromises.readFile(aiDeclaration, "utf8")).resolves.toBe(
+        "export { publicApi };\n",
+      );
+      await expect(fsPromises.readFile(rootDeclaration, "utf8")).resolves.toBe(malformed);
+    }));
+
+  it("refuses to sanitize a symlinked direct-build output root", () =>
+    fixture.run(async () => {
+      const rootDir = createTempDir("openclaw-tsdown-sanitize-symlink-");
+      const targetDir = path.join(rootDir, "target");
+      const declaration = path.join(targetDir, "index.d.ts");
+      const malformed = "export { __exportAll, publicApi };\n";
+      await fsPromises.mkdir(targetDir);
+      await fsPromises.writeFile(declaration, malformed);
+      await fsPromises.mkdir(path.join(rootDir, "packages", "ai"), { recursive: true });
+      await fsPromises.symlink(targetDir, path.join(rootDir, "packages", "ai", "dist"), "dir");
+
+      expect(() =>
+        sanitizeTsdownBuildOutputRoots(["--config", "tsdown.ai.config.ts"], rootDir),
+      ).toThrow(/symbolic link/u);
+
+      await expect(fsPromises.readFile(declaration, "utf8")).resolves.toBe(malformed);
+    }));
+
+  it("refuses to sanitize a direct-build output root behind an intermediate symlink", () =>
+    fixture.run(async () => {
+      const rootDir = createTempDir("openclaw-tsdown-sanitize-parent-symlink-");
+      const targetPackages = path.join(rootDir, "target-packages");
+      const declaration = path.join(targetPackages, "ai", "dist", "index.d.ts");
+      const malformed = "export { __exportAll, publicApi };\n";
+      await fsPromises.mkdir(path.dirname(declaration), { recursive: true });
+      await fsPromises.writeFile(declaration, malformed);
+      await fsPromises.symlink(targetPackages, path.join(rootDir, "packages"), "dir");
+
+      expect(() =>
+        sanitizeTsdownBuildOutputRoots(["--config", "tsdown.ai.config.ts"], rootDir),
+      ).toThrow(/symbolic link/u);
+
+      await expect(fsPromises.readFile(declaration, "utf8")).resolves.toBe(malformed);
+    }));
+
+  it.each([
+    { code: 0, expectedAi: "export { publicApi };\n", label: "successful" },
+    { code: 1, expectedAi: "export { __exportAll, publicApi };\n", label: "failed" },
+  ])("sanitizes selected declarations only after a $label direct build", ({ code, expectedAi }) =>
+    fixture.run(async () => {
+      const rootDir = createTempDir(`openclaw-tsdown-runner-sanitize-${code}-`);
+      const aiDeclaration = path.join(rootDir, "packages", "ai", "dist", "index.d.ts");
+      const rootDeclaration = path.join(rootDir, "dist", "index.d.ts");
+      const malformed = "export { __exportAll, publicApi };\n";
+      await fsPromises.mkdir(path.dirname(aiDeclaration), { recursive: true });
+      await fsPromises.mkdir(path.dirname(rootDeclaration), { recursive: true });
+      await fsPromises.writeFile(aiDeclaration, malformed);
+      await fsPromises.writeFile(rootDeclaration, malformed);
+      const executeBuild = vi.fn(async () => code);
+
+      await expect(
+        runTsdownBuild(["--config", "tsdown.ai.config.ts"], { cwd: rootDir, executeBuild }),
+      ).resolves.toBe(code);
+
+      expect(executeBuild).toHaveBeenCalledWith(["--config", "tsdown.ai.config.ts"]);
+      await expect(fsPromises.readFile(aiDeclaration, "utf8")).resolves.toBe(expectedAi);
+      await expect(fsPromises.readFile(rootDeclaration, "utf8")).resolves.toBe(malformed);
+    }),
+  );
+
   it.each(["OpenClaw.app", "candidates/OpenClaw.app"])(
     "keeps the packaged Mac app intact at %s while rebuilding its replacement runtime",
     (appPath) =>
@@ -2339,10 +2437,10 @@ describe("runTsdownBuildInvocation", () => {
               clears.mockRestore();
               timers.mockRestore();
               clock.mockRestore();
-              if (abortFailure) {
-                throw abortFailure;
-              }
             }
+          }
+          if (abortFailure) {
+            throw abortFailure;
           }
         });
       },

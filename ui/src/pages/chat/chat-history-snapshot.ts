@@ -1,6 +1,6 @@
 import { readSessionMessageSequence } from "@openclaw/gateway-client/browser";
 import type {
-  ChatInputConsumptions,
+  ChatInputReceipts,
   ChatPendingInputsPage,
 } from "../../../../packages/gateway-protocol/src/schema/logs-chat.js";
 import type { GatewaySessionRow, GatewaySessionsDefaults } from "../../api/types.ts";
@@ -10,13 +10,12 @@ import {
   resolveUiSelectedSessionAgentId,
 } from "../../lib/sessions/session-key.ts";
 import type { ChatHistoryPagination } from "./chat-history-pagination.ts";
-import type { ChatState } from "./chat-state-contract.ts";
+import type { ChatHistorySessions, ChatState } from "./chat-state-contract.ts";
 import { cacheChatSessionSnapshot, readChatSessionSnapshot } from "./session-message-cache.ts";
 
 export type ChatHistoryResult = {
   pendingInputs?: ChatPendingInputsPage;
-  inputConsumptions?: ChatInputConsumptions;
-  sourceCanonicalListRevision?: number;
+  inputReceipts?: ChatInputReceipts;
   deltaCursor?: string;
   messages?: Array<unknown>;
   offset?: number;
@@ -50,7 +49,7 @@ export type ChatHistoryResult = {
 
 export type ChatHistoryDeltaResult = {
   pendingInputs?: ChatPendingInputsPage;
-  inputConsumptions?: ChatInputConsumptions;
+  inputReceipts?: ChatInputReceipts;
   kind: "delta";
   messages: unknown[];
   deltaCursor: string;
@@ -65,6 +64,19 @@ export type ChatHistoryResponse =
   | ChatHistoryResult
   | ChatHistoryDeltaResult
   | ChatHistoryResetResult;
+
+export type ChatHistoryObservation = {
+  owner: ChatHistorySessions;
+  reconcile: ReturnType<ChatHistorySessions["captureReconcile"]>;
+};
+
+export type ObservedChatHistoryResult = ChatHistoryResult & {
+  observation: ChatHistoryObservation;
+};
+
+export type ObservedChatHistoryResponse = ChatHistoryResponse & {
+  observation: ChatHistoryObservation;
+};
 
 export function isHistoryCursor(
   result: ChatHistoryResponse,

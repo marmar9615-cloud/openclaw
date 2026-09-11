@@ -127,8 +127,17 @@ async function createFixture(operation: "summary" | "endpoint", globalAlias = fa
   authStorage.setRuntimeApiKey(model.provider, "test-api-key");
   const modelRegistry = sessions.ModelRegistry.inMemory(authStorage);
   modelRegistry.registerProvider(model.provider, { api: model.api, streamSimple: stream });
-  resolveModelMock.mockReturnValue({ model, error: null, authStorage, modelRegistry });
-  vi.mocked(streamResolution.resolveEmbeddedAgentStreamFn).mockReturnValue(stream);
+  resolveModelMock.mockImplementation((provider = model.provider, modelId = model.id) => ({
+    logicalRef: { provider, model: modelId },
+    model,
+    error: null,
+    authStorage,
+    modelRegistry,
+  }));
+  vi.mocked(streamResolution.resolveEmbeddedAgentStream).mockReturnValue({
+    streamFn: stream,
+    strategy: "session-custom",
+  });
   applyExtraParamsToAgentMock.mockReturnValue({
     effectiveExtraParams: { responsesCompactEndpoint: operation === "endpoint" },
   });

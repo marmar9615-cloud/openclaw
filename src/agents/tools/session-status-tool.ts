@@ -232,7 +232,7 @@ type CommandsStatusRuntimeModule = {
 };
 
 const commandsStatusRuntimeLoader = createLazyImportLoader<CommandsStatusRuntimeModule>(
-  () => import("./session-status.runtime.js") as Promise<CommandsStatusRuntimeModule>,
+  () => import("../../status/status-text.js") as Promise<CommandsStatusRuntimeModule>,
 );
 
 function loadCommandsStatusRuntime(): Promise<CommandsStatusRuntimeModule> {
@@ -526,7 +526,7 @@ async function resolveModelOverride(params: {
           env: process.env,
         });
   const modelManifestContext = {
-    manifestPlugins: manifestMetadataSnapshot?.plugins,
+    manifestPlugins: manifestMetadataSnapshot,
   };
   const policy = createModelVisibilityPolicy({
     cfg: params.cfg,
@@ -553,7 +553,7 @@ async function resolveModelOverride(params: {
     throw new Error(`Unrecognized model "${raw}".`);
   }
   const key = modelKey(resolved.ref.provider, resolved.ref.model);
-  if (!policy.allowsKey(key)) {
+  if (!policy.allows(resolved.ref)) {
     throw new Error(`Model "${key}" is not allowed.`);
   }
   const isDefault =
@@ -1003,6 +1003,7 @@ export function createSessionStatusTool(opts?: {
               entry: nextEntry,
               currentProvider,
               selection: modelSelection,
+              explicitDefaultSelection: modelSelection.isDefault,
               markLiveSwitchPending: true,
             });
             if (applied.updated) {
@@ -1023,6 +1024,7 @@ export function createSessionStatusTool(opts?: {
                       entry.modelProvider?.trim() ||
                       configured.provider,
                     selection: modelSelection,
+                    explicitDefaultSelection: modelSelection.isDefault,
                     markLiveSwitchPending: true,
                   });
                   if (

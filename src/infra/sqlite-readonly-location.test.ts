@@ -9,12 +9,15 @@ import { requireNodeSqlite } from "./node-sqlite.js";
 import { runtimeProcessEntrypoints } from "./runtime-process-entrypoints.js";
 import { resolveRuntimeWorkerArgv, resolveRuntimeWorkerUrl } from "./runtime-worker-url.js";
 import { startSqliteConcurrentWriter } from "./sqlite-concurrent-writer.test-support.js";
+import { readMainDatabasePosixLocks } from "./sqlite-posix-locks.test-support.js";
 import {
-  prepareSqliteReadOnlyLocation,
   prepareSqliteReadOnlyLocationInProcess,
-  prepareSqliteReadOnlyLocationSync,
   prepareSqliteReadOnlyLocationSyncInProcess,
 } from "./sqlite-readonly-location.js";
+import {
+  prepareSqliteReadOnlyLocation,
+  prepareSqliteReadOnlyLocationSync,
+} from "./sqlite-snapshot-source.js";
 
 const writers: Array<ReturnType<typeof startSqliteConcurrentWriter>> = [];
 const tempDirs = useAutoCleanupTempDirTracker((cleanup) => {
@@ -84,43 +87,6 @@ function readLogicalFamily(pathname: string): Map<string, Buffer> {
   const family = readFamily(pathname);
   family.delete("-shm");
   return family;
-}
-
-type PosixLock = {
-  length: number;
-  pid: number;
-  start: number;
-  type: string;
-};
-
-function readMainDatabasePosixLocks(pathname: string): PosixLock[] {
-  const result = spawnSync(
-    "python3",
-    [
-      "-c",
-      `
-import fcntl, json, os, struct, sys
-layout = struct.Struct("hhqqi4x")
-request = layout.pack(fcntl.F_WRLCK, os.SEEK_SET, 1073741826, 510, 0)
-with open(sys.argv[1], "rb") as database:
-    result = layout.unpack(fcntl.fcntl(database.fileno(), fcntl.F_GETLK, request))
-lock_type, _, start, length, pid = result
-locks = [] if lock_type == fcntl.F_UNLCK else [{
-    "length": length,
-    "pid": pid,
-    "start": start,
-    "type": "read" if lock_type == fcntl.F_RDLCK else "write",
-}]
-print(json.dumps(locks))
-`,
-      pathname,
-    ],
-    { encoding: "utf8" },
-  );
-  if (result.status !== 0) {
-    throw new Error(result.stderr || "POSIX lock probe failed");
-  }
-  return JSON.parse(result.stdout) as PosixLock[];
 }
 
 describe("prepareSqliteReadOnlyLocation", () => {
@@ -396,6 +362,33 @@ describe("prepareSqliteReadOnlyLocation", () => {
     expect(fs.readdirSync(path.join(cacheRoot, "openclaw"))).toEqual([]);
   });
 
+  it.each([
+    { mode: "async", prepare: prepareSqliteReadOnlyLocationInProcess },
+    { mode: "sync", prepare: prepareSqliteReadOnlyLocationSyncInProcess },
+  ])("preserves malformed header diagnostics during $mode inspection", async ({ prepare }) => {
+    const databasePath = createTempDatabasePath();
+    fs.writeFileSync(databasePath, "not a sqlite database");
+    const before = readFamily(databasePath);
+    let prepared: Awaited<ReturnType<typeof prepare>> | undefined;
+    try {
+      await expect(
+        (async () => {
+          prepared = await prepare(databasePath);
+          const sqlite = requireNodeSqlite();
+          const snapshot = new sqlite.DatabaseSync(prepared.location, { readOnly: true });
+          try {
+            snapshot.prepare("PRAGMA user_version;").get();
+          } finally {
+            snapshot.close();
+          }
+        })(),
+      ).rejects.toThrow("file is not a database");
+    } finally {
+      prepared?.cleanup();
+    }
+    expect(readFamily(databasePath)).toEqual(before);
+  });
+
   it("preserves source corruption without reporting a snapshot staging quota failure", async () => {
     const cacheRoot = tempDirs.make("openclaw-sqlite-snapshot-corrupt-source-");
     const sqlite = requireNodeSqlite();
@@ -429,11 +422,14 @@ describe("prepareSqliteReadOnlyLocation", () => {
       );
 
       expect(inProcessError).toMatchObject({
+        code: "ERR_SQLITE_ERROR",
         errcode: 11,
         message: "database disk image is malformed",
       });
       expect(workerError).toBeInstanceOf(Error);
-      expect((workerError as Error).message).toContain("database disk image is malformed");
+      expect((workerError as Error).message).toContain(
+        "database disk image is malformed (code=ERR_SQLITE_ERROR, errcode=11)",
+      );
       expect((workerError as Error).message).not.toMatch(/staging|quota|XDG_CACHE_HOME/u);
     });
   });
@@ -498,7 +494,7 @@ describe("prepareSqliteReadOnlyLocation", () => {
       database.close();
       const workerUrl = resolveRuntimeWorkerUrl(runtimeProcessEntrypoints.sqliteReadOnly);
       const extension = workerUrl.pathname.endsWith(".ts") ? ".ts" : ".js";
-      const moduleUrl = new URL(`./sqlite-readonly-location${extension}`, workerUrl).href;
+      const moduleUrl = new URL(`./sqlite-snapshot-source${extension}`, workerUrl).href;
       const script = `
         const { prepareSqliteReadOnlyLocation } = await import(${JSON.stringify(moduleUrl)});
         try {
@@ -531,21 +527,53 @@ describe("prepareSqliteReadOnlyLocation", () => {
       const reported = JSON.parse(child.stdout) as { message: string };
       expect(reported.message).toContain(cacheRoot);
       expect(reported.message).toMatch(/free.*space|quota/iu);
-      expect(reported.message).toContain("778");
+      expect(reported.message).toContain("(code=ERR_SQLITE_ERROR, errcode=778)");
     },
   );
 
   it("propagates async public entry point failures", async () => {
     const missingPath = path.join(tempDirs.make("openclaw-sqlite-readonly-missing-"), "missing.db");
     await expect(prepareSqliteReadOnlyLocation(missingPath)).rejects.toThrow(
-      /SQLite read-only worker .*ENOENT/u,
+      /SQLite read-only worker .*ENOENT.*\(code=ENOENT\)/u,
     );
+  });
+
+  it.each([
+    {
+      boundary: "tail start",
+      stderr: `🤖${"x".repeat(3_999)}`,
+      expectedTail: "x".repeat(3_999),
+    },
+    {
+      boundary: "Node stderr buffer end",
+      stderr: `${"x".repeat(1024 * 1024 - 1)}🤖${"x".repeat(4_096)}`,
+      expectedTail: `${"x".repeat(3_999)}�`,
+    },
+  ])("keeps worker stderr valid at the $boundary", async ({ stderr, expectedTail }) => {
+    const tempDir = tempDirs.make("openclaw-sqlite-readonly-stderr-");
+    const preloadPath = path.join(tempDir, "stderr-preload.cjs");
+    fs.writeFileSync(
+      preloadPath,
+      `process.once("beforeExit", () => process.stderr.write(${JSON.stringify(stderr)}));`,
+    );
+    const missingPath = path.join(tempDir, "missing.db");
+
+    await withEnvAsync({ NODE_OPTIONS: `--require=${preloadPath}` }, async () => {
+      let message = "";
+      try {
+        await prepareSqliteReadOnlyLocation(missingPath);
+      } catch (error) {
+        message = error instanceof Error ? error.message : String(error);
+      }
+
+      expect(message.split("stderr (tail): ")[1]).toBe(expectedTail);
+    });
   });
 
   it("propagates sync public entry point failures", () => {
     const missingPath = path.join(tempDirs.make("openclaw-sqlite-readonly-missing-"), "missing.db");
     expect(() => prepareSqliteReadOnlyLocationSync(missingPath)).toThrow(
-      /SQLite read-only worker .*ENOENT/u,
+      /SQLite read-only worker .*ENOENT.*\(code=ENOENT\)/u,
     );
   });
 
@@ -563,7 +591,9 @@ describe("prepareSqliteReadOnlyLocation", () => {
       const locksBefore = readMainDatabasePosixLocks(databasePath);
       const cleanups: Array<() => boolean> = [];
       try {
-        expect(locksBefore).toHaveLength(1);
+        expect(locksBefore).toEqual([
+          { length: 510, pid: process.pid, start: 1073741826, type: "read" },
+        ]);
 
         const preparedAsync = await prepareSqliteReadOnlyLocation(databasePath);
         cleanups.push(preparedAsync.cleanup);
@@ -771,6 +801,12 @@ describe("prepareSqliteReadOnlyLocation", () => {
       const ready = await writer.waitFor("ready");
       expect(ready.commits).toBeGreaterThan(0);
       expect(writer.pid).not.toBe(process.pid);
+      // Hold a real half-written transaction so read admission does not race
+      // an unbounded stream of commits; the snapshot must exclude that write.
+      const held = await writer.holdTransaction();
+      expect(held.commits).toBeGreaterThanOrEqual(ready.commits);
+      expect(held.transaction).toBe(true);
+      expect(held.values).toEqual([held.commits + 1, held.commits]);
 
       const prepared = await prepareSqliteReadOnlyLocationInProcess(databasePath);
       const snapshot = new sqlite.DatabaseSync(prepared.location, { readOnly: true });
@@ -779,15 +815,29 @@ describe("prepareSqliteReadOnlyLocation", () => {
           .prepare("SELECT value FROM pair ORDER BY name")
           .all()
           .map((row) => (row as { value: number }).value);
-        expect(values).toHaveLength(2);
-        expect(values[0]).toBeGreaterThan(0);
-        expect(values[0]).toBe(values[1]);
+        expect(values).toEqual([held.commits, held.commits]);
         expect(snapshot.prepare("PRAGMA integrity_check").get()).toEqual({ integrity_check: "ok" });
       } finally {
         snapshot.close();
         expect(prepared.cleanup()).toBe(true);
       }
-      expect((await writer.progress()).commits).toBeGreaterThan(ready.commits);
+      const progress = await writer.progress();
+      expect(progress.commits).toBeGreaterThan(held.commits);
+      expect(progress.transaction).toBe(false);
+      const unfinished = await writer.holdTransaction();
+      expect(unfinished.transaction).toBe(true);
+      expect(unfinished.values).toEqual([unfinished.commits + 1, unfinished.commits]);
+      await writer.stop();
+      const source = new sqlite.DatabaseSync(databasePath, { readOnly: true });
+      try {
+        expect(source.prepare("SELECT value FROM pair ORDER BY name").all()).toEqual([
+          { value: unfinished.commits },
+          { value: unfinished.commits },
+        ]);
+        expect(source.prepare("PRAGMA integrity_check").get()).toEqual({ integrity_check: "ok" });
+      } finally {
+        source.close();
+      }
     } finally {
       await writer.stop();
     }

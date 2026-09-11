@@ -26,18 +26,11 @@ repo_root() {
 }
 
 ensure_gh_api_auth() {
-  # gh auth status fetches token scopes through REST and misreports quota
-  # failures as invalid credentials. GraphQL verifies the active local token
-  # without sending maintainers through a login that cannot restore quota.
-  if gh_plain api graphql -f 'query=query { viewer { login } }' --jq .data.viewer.login >/dev/null 2>&1; then
-    return 0
-  fi
-
-  cat >&2 <<'EOF'
-GitHub CLI auth is not usable for non-interactive API calls.
-Run `gh auth login -h github.com` (or refresh the current token) and retry.
-EOF
-  return 1
+  # Diagnose only this viewer request's budget. A pooled REST probe can describe
+  # a different credential; raw response/error text must never reach diagnostics.
+  local response exit_code=0
+  response=$(gh_plain api graphql -f 'query=query { viewer { login } }' --include 2>/dev/null) || exit_code=$?
+  printf '%s' "$response" | node "$(dirname "${BASH_SOURCE[0]}")/gh-api-preflight.mjs" "$exit_code"
 }
 
 ensure_full_pr_worktree_checkout() {
@@ -77,6 +70,8 @@ require_no_ignored_transition_paths() {
   local source="$2"
   local target="$3"
   local file
+  # Keep ls-files' literal subtree matching: check-ignore on a directory misses
+  # ignored descendants that restore would delete. Bound argv; skip empty diffs.
   git diff --name-only --no-renames -z "$source" "$target" |
     while IFS= read -r -d '' file; do
       case "$file" in
@@ -85,19 +80,20 @@ require_no_ignored_transition_paths() {
           return 1
           ;;
       esac
-    done || return 1
-
-  # Ask Git about every transition path at once. Per-path ignored-file scans
-  # become prohibitively slow when a PR is far behind main.
-  git diff --name-only --no-renames -z "$source" "$target" |
-    { git check-ignore -z --stdin || [ "$?" -eq 1 ]; } |
+      printf ':(literal)%s\0' "$file"
+      # A file or symlink ancestor would also be replaced; ordinary directories
+      # may contain unrelated ignored data and must not widen the query.
+      while [[ "$file" == */* ]]; do
+        file=${file%/*}
+        if [ -L "$file" ] || { [ -e "$file" ] && [ ! -d "$file" ]; }; then
+          printf ':(literal)%s\0' "$file"
+        fi
+      done
+    done |
+    xargs -0 -r -s 32768 git ls-files --others --ignored --exclude-standard -z -- |
     while IFS= read -r -d '' file; do
-      # check-ignore also reports paths that do not exist. Only an existing
-      # ignored entry can be overwritten by the transition.
-      if [ -e "$file" ] || [ -L "$file" ]; then
-        refuse_review_transition "$pr" "ignored file '$file' would be overwritten by the journaled transition."
-        return 1
-      fi
+      refuse_review_transition "$pr" "ignored file '$file' would be overwritten by the journaled transition."
+      return 1
     done
 }
 
@@ -108,23 +104,17 @@ validate_review_transition_state() {
   local current
   current=$(git rev-parse HEAD)
   if { [ "$current" != "$source" ] && [ "$current" != "$target" ]; } ||
-    [ -n "$(git ls-files -u)" ] || ! git diff --quiet ||
-    ! require_no_foreign_untracked "$pr"
+    [ -n "$(git ls-files -u)" ]
   then
     refuse_review_transition "$pr" "the journaled transition state is ambiguous."
     return 1
   fi
   require_no_ignored_transition_paths "$pr" "$source" "$target" || return 1
 
-  # A path changed from source is owned only when its index mode and blob match target.
-  local file
-  git diff --cached --name-only --no-renames -z "$source" |
-    while IFS= read -r -d '' file; do
-      if ! git diff --cached --quiet "$target" -- ":(literal)$file"; then
-        refuse_review_transition "$pr" "'$file' is neither its journaled source nor target entry."
-        return 1
-      fi
-    done
+  node "$(dirname "${BASH_SOURCE[0]}")/review-transition-state.mjs" "$source" "$target" || {
+    refuse_review_transition "$pr" "the index or working tree contains unowned transition state."
+    return 1
+  }
 }
 
 write_review_transition_journal() {
@@ -165,8 +155,8 @@ recover_review_transition() {
     return 1
   }
   IFS=$'\t' read -r source target mode branch <<<"$fields"
-  if ! git cat-file -e "$source^{commit}" 2>/dev/null ||
-    ! git cat-file -e "$target^{commit}" 2>/dev/null ||
+  if ! GIT_NO_LAZY_FETCH=1 git cat-file -e "$source^{commit}" 2>/dev/null ||
+    ! GIT_NO_LAZY_FETCH=1 git cat-file -e "$target^{commit}" 2>/dev/null ||
     { [ "$mode" = "branch" ] && [ "$branch" != "temp/pr-$pr" ]; }
   then
     refuse_review_transition "$pr" "the transition journal names an invalid endpoint or branch."
@@ -174,10 +164,11 @@ recover_review_transition() {
   fi
 
   validate_review_transition_state "$pr" "$source" "$target" || return 1
-  # Completed deletions are absent from both index and target, so replay only
-  # remaining entries rather than passing already-removed paths to restore.
-  if ! git diff --cached --quiet "$target"; then
-    git diff --cached --name-only --no-renames -z "$target" |
+  # Restore can write files before committing its index. Rebuild the validated
+  # source index so replay also owns source-only files left after index deletion.
+  git read-tree "$source" || return 1
+  if ! git diff --quiet "$source" "$target"; then
+    git diff --name-only --no-renames -z "$source" "$target" |
       git --literal-pathspecs restore --source="$target" --staged --worktree \
         --pathspec-from-file=- --pathspec-file-nul || return 1
   fi

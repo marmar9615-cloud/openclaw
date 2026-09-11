@@ -1,5 +1,31 @@
 #!/bin/bash
+
+# Bash 5.3+ can deadlock writing heredoc pipes on macOS before the reader starts.
+if [[ ${OSTYPE:-} == darwin* && $BASH != /bin/bash ]] && ((BASH_VERSINFO[0] > 5 || (BASH_VERSINFO[0] == 5 && BASH_VERSINFO[1] >= 3))); then
+  if (return 0 2>/dev/null); then
+    printf '%s\n' 'Run this installer with /bin/bash on macOS instead of sourcing it.' >&2
+    return 1
+  fi
+  case "${BASH_SOURCE[0]:-}" in
+    ""|bash|-bash|/dev/stdin)
+      # Bash reads piped scripts unbuffered; stdin now starts after this guard.
+      OPENCLAW_INSTALLER_REEXEC_FILE="$(mktemp "${TMPDIR:-/tmp}/openclaw-installer.XXXXXX")" || exit 1
+      export OPENCLAW_INSTALLER_REEXEC_FILE
+      trap 'rm -f -- "$OPENCLAW_INSTALLER_REEXEC_FILE"' EXIT
+      { printf '#!/bin/bash\n'; cat; } > "$OPENCLAW_INSTALLER_REEXEC_FILE" || exit 1
+      exec /bin/bash "$OPENCLAW_INSTALLER_REEXEC_FILE" "$@"
+      ;;
+    *) exec /bin/bash "$0" "$@" ;;
+  esac
+fi
+
 set -euo pipefail
+
+# The re-executed shell has the script open, so unlink its private copy now.
+if [[ -n "${OPENCLAW_INSTALLER_REEXEC_FILE:-}" && "${BASH_SOURCE[0]:-}" == "$OPENCLAW_INSTALLER_REEXEC_FILE" ]]; then
+  rm -f -- "$OPENCLAW_INSTALLER_REEXEC_FILE"
+fi
+unset OPENCLAW_INSTALLER_REEXEC_FILE
 
 # OpenClaw Installer for macOS and Linux
 # Usage: curl -fsSL --proto '=https' --tlsv1.2 https://openclaw.ai/install.sh | bash
@@ -23,14 +49,11 @@ NODE_BREW_FORMULA="node"
 # Linux package repositories can publish builds ahead of the Node release line.
 # Provision the supported LTS line there so a fresh install never receives a prerelease runtime.
 NODE_LINUX_DEFAULT_MAJOR=24
-NODE_MIN_MAJOR=22
-NODE_22_MIN_MINOR=22
-NODE_22_MIN_PATCH=3
-NODE_24_MIN_MINOR=15
+NODE_24_MIN_MINOR=16
 NODE_24_MIN_PATCH=0
-NODE_25_MIN_MINOR=9
-NODE_25_MIN_PATCH=0
-NODE_SUPPORTED_VERSION_LABEL="22.22.3+, 24.15.0+, or 25.9.0+"
+NODE_26_MIN_MINOR=1
+NODE_26_MIN_PATCH=0
+NODE_SUPPORTED_VERSION_LABEL="24.16.0+ or 26.1.0+"
 
 ORIGINAL_PATH="${PATH:-}"
 
@@ -1064,11 +1087,32 @@ const normalized = spec.trim();
 const unaliased = normalized.toLowerCase().startsWith("openclaw@") ? normalized.slice(9).trim() : normalized;
 const explicit = (value) => /\.(?:tgz|tar\.gz)$/i.test(value) || value.includes("://") || value.includes("#") || /^(?:file|github|git\+(?:ssh|https|http|file)|npm):/i.test(value);
 let identity = !normalized || explicit(normalized) || explicit(unaliased) || /^\.{1,2}(?:[\\/]|$)/.test(unaliased) || path.isAbsolute(normalized) || path.isAbsolute(unaliased) ? unaliased : "openclaw";
-if (/^npm:/i.test(identity)) identity = /^npm:(@[^/]+\/[^@]+|[^@]+?)(?:@.*)?$/i.exec(identity)?.[1] ?? "";
-const relative = cwd && path.isAbsolute(identity) ? path.relative(cwd, identity) || "." : "";
-if (relative) identity = path.isAbsolute(relative) || relative === "." || relative === ".." || relative.startsWith(`..${path.sep}`) ? relative : `.${path.sep}${relative}`;
+const alias = /^npm:/i.test(identity);
+if (alias) identity = /^npm:(@[^/]+\/[^@]+|[^@]+?)(?:@.*)?$/i.exec(identity)?.[1] ?? "";
+const filePrefix = /^file:/i.test(identity) ? "file:" : "";
+const archivePath = identity.slice(filePrefix.length);
+const gitShorthand = !/^~[\\/]/.test(identity) && /^[^./@\s:#][^/\s:@#]*\/[^/\s:@#]+(?:#[\s\S]*)?$/.test(identity);
+const localArchive = !alias && !gitShorthand && /\.(?:tgz|tar\.gz|tar)$/i.test(archivePath) && (filePrefix || path.isAbsolute(archivePath) || !/^[a-z][a-z0-9+.-]*:/i.test(archivePath));
+let absoluteArchive = "";
+if (localArchive) {
+  const npmPath = process.platform === "win32" ? archivePath.replaceAll("\\", "/") : archivePath;
+  // Escape raw paths before URL normalization so literal %, #, and ? retain their identity.
+  let fileUrl = `file:${encodeURI(npmPath).replace(/[?#]/g, encodeURIComponent)}`;
+  fileUrl = fileUrl.replace(/^file:\/\/(?=[^/])/, "file:/").replace(/^file:\/{1,3}(?=\.\.?(?:\/|$))/, "file:");
+  const specPath = decodeURIComponent(new URL(fileUrl).pathname);
+  let resolvedPath = decodeURIComponent(new URL(fileUrl, `${require("node:url").pathToFileURL(path.resolve(cwd || process.cwd())).href}/`).pathname);
+  if (process.platform === "win32") resolvedPath = resolvedPath.replace(/^\/+([a-z]:\/)/i, "$1");
+  absoluteArchive = /^\/~(?:\/|$)/.test(specPath) ? path.resolve(require("node:os").homedir(), specPath.slice(3)) : path.resolve(cwd || process.cwd(), resolvedPath);
+}
+// Tarballs match the absolute npm resolved identity; directory links accept relative paths.
+// Keep the npm 11 comma-path identity: its advisory/strict decision stays npm-owned.
+if (absoluteArchive && (+parsed[1] >= 12 || !absoluteArchive.includes(","))) identity = `${filePrefix}${absoluteArchive}`;
+else {
+  const relative = cwd && path.isAbsolute(identity) ? path.relative(cwd, identity) || "." : "";
+  if (relative) identity = path.isAbsolute(relative) || relative === "." || relative === ".." || relative.startsWith(`..${path.sep}`) ? relative : `.${path.sep}${relative}`;
+}
 if (exactIdentity) identity = exactIdentity;
-if (!identity || identity.includes(",")) fail(`npm cannot allow lifecycle scripts for install target '${spec}'.`);
+if (!identity || identity.includes(",")) fail(`npm cannot allow lifecycle scripts for install target '${spec}'; use a package URL or local path without commas.`);
 process.stdout.write(`--allow-scripts=${identity}\n`);
 NODE
 )" || return 1
@@ -1108,9 +1152,6 @@ run_npm_global_install() {
 
     local -a cmd
     cmd=(env -u NPM_CONFIG_BEFORE -u npm_config_before -u NPM_CONFIG_MIN_RELEASE_AGE -u npm_config_min_release_age -u npm_config_min-release-age "$npm_cmd" --loglevel "$NPM_LOGLEVEL")
-    if [[ -n "$NPM_SILENT_FLAG" ]]; then
-        cmd+=("$NPM_SILENT_FLAG")
-    fi
     cmd+=(--no-fund --no-audit "$freshness_flag" install -g)
     [[ -z "$lifecycle_arg" ]] || cmd+=("$lifecycle_arg")
     cmd+=("$spec")
@@ -1191,7 +1232,7 @@ print_npm_failure_diagnostics() {
     if [[ -n "${LAST_NPM_INSTALL_CMD}" ]]; then
         echo "  Command: ${LAST_NPM_INSTALL_CMD}"
     fi
-    echo "  Installer log: ${log}"
+    # EXIT cleanup removes this capture; expose its contents and npm-owned log instead.
 
     error_code="$(extract_npm_error_code "$log")"
     if [[ -n "$error_code" ]]; then
@@ -1398,7 +1439,6 @@ GIT_DIR=${OPENCLAW_GIT_DIR:-"$(resolve_openclaw_effective_home)/openclaw"}
 GIT_DIR_EXPLICIT=${OPENCLAW_GIT_DIR:+1}
 GIT_UPDATE=${OPENCLAW_GIT_UPDATE:-1}
 NPM_LOGLEVEL="${OPENCLAW_NPM_LOGLEVEL:-error}"
-NPM_SILENT_FLAG="--silent"
 VERBOSE="${OPENCLAW_VERBOSE:-0}"
 VERIFY_INSTALL="${OPENCLAW_VERIFY_INSTALL:-0}"
 OPENCLAW_BIN=""
@@ -1536,7 +1576,6 @@ configure_verbose() {
     if [[ "$NPM_LOGLEVEL" == "error" ]]; then
         NPM_LOGLEVEL="notice"
     fi
-    NPM_SILENT_FLAG=""
     set -x
 }
 
@@ -1732,20 +1771,16 @@ node_version_components_are_supported() {
     local patch="$3"
 
     case "$major" in
-        "$NODE_MIN_MAJOR")
-            ((minor > NODE_22_MIN_MINOR)) ||
-                ((minor == NODE_22_MIN_MINOR && patch >= NODE_22_MIN_PATCH))
-            ;;
         24)
             ((minor > NODE_24_MIN_MINOR)) ||
                 ((minor == NODE_24_MIN_MINOR && patch >= NODE_24_MIN_PATCH))
             ;;
-        25)
-            ((minor > NODE_25_MIN_MINOR)) ||
-                ((minor == NODE_25_MIN_MINOR && patch >= NODE_25_MIN_PATCH))
+        26)
+            ((minor > NODE_26_MIN_MINOR)) ||
+                ((minor == NODE_26_MIN_MINOR && patch >= NODE_26_MIN_PATCH))
             ;;
         *)
-            ((major > 25))
+            ((major > 26))
             ;;
     esac
 }
@@ -1768,11 +1803,27 @@ node_binary_has_safe_sqlite() {
                         (minor === 51 && patch >= 3) ||
                         (minor === 50 && patch >= 7) ||
                         (minor === 44 && patch >= 6)));
-            if (!safe) process.exitCode = 1;
+            const text = "a\u0000b\u0000";
+            const bytes = Buffer.from(text, "utf8");
+            const json = JSON.stringify({ value: text });
+            db.exec("CREATE TABLE probe (text_value TEXT, blob_value BLOB, json_value TEXT)");
+            db.prepare("INSERT INTO probe VALUES (?, ?, ?)").run(text, bytes, json);
+            const row = db.prepare("SELECT text_value, blob_value, json_value FROM probe").get();
+            const textSafe = typeof row?.text_value === "string" && row.text_value.length === text.length && Buffer.from(row.text_value, "utf8").equals(bytes);
+            const blobSafe = row?.blob_value instanceof Uint8Array && Buffer.from(row.blob_value).equals(bytes);
+            const jsonSafe = row?.json_value === json && JSON.parse(row.json_value).value === text;
+            if (!textSafe) {
+                console.error("Node " + process.versions.node + ": node:sqlite truncates TEXT at embedded NUL (nodejs/node#61954); use 24.16+/26.1+ or a build with the fix");
+            } else if (!blobSafe || !jsonSafe) {
+                console.error("Node " + process.versions.node + ": node:sqlite NUL round-trip capability probe failed; use 24.16+/26.1+ or a build with the fix");
+            } else if (!safe) {
+                console.error("Node " + process.versions.node + ": SQLite " + value + " is not WAL-reset-safe");
+            }
+            if (!safe || !textSafe || !blobSafe || !jsonSafe) process.exitCode = 1;
         } finally {
             db.close();
         }
-    ' >/dev/null 2>&1
+    ' --no-warnings >/dev/null
 }
 
 node_binary_sqlite_version() {
@@ -1801,7 +1852,7 @@ node_version_is_supported() {
 }
 
 node_is_supported() {
-    node_version_is_supported && node_binary_has_safe_sqlite node
+    node_binary_is_supported node
 }
 
 node_binary_is_supported() {
@@ -2523,7 +2574,7 @@ ensure_pnpm() {
     local repo_dir="${1:-$PWD}"
     local spec version pnpm_dir corepack_cmd="" npm_cmd lifecycle_arg selected_version
     spec="$(repo_pnpm_spec "$repo_dir" || true)"
-    [[ "$spec" == pnpm@* ]] || spec="pnpm@12.1.0"
+    [[ "$spec" == pnpm@* ]] || spec="pnpm@12.3.4"
     version="${spec#pnpm@}"
     version="${version%%+*}"
     pnpm_dir="$(mktemp -d "${TMPDIR:-/tmp}/openclaw-pnpm.XXXXXX")" || return 1
@@ -3322,7 +3373,7 @@ install_openclaw_from_git() {
     if should_prefer_offline_pnpm_install "$repo_dir"; then
         pnpm_prefer_offline_args=(--prefer-offline)
     fi
-    CI="${CI:-true}" run_quiet_step "Installing dependencies" run_pnpm -C "$repo_dir" install "${pnpm_prefer_offline_args[@]}" "$install_lockfile_flag"
+    CI="${CI:-true}" run_quiet_step "Installing dependencies" run_pnpm -C "$repo_dir" install ${pnpm_prefer_offline_args[@]+"${pnpm_prefer_offline_args[@]}"} "$install_lockfile_flag"
 
     if ! run_quiet_step "Building UI" run_pnpm -C "$repo_dir" ui:build; then
         ui_warn "UI build failed; continuing (CLI may still work)"
@@ -3644,7 +3695,8 @@ refresh_gateway_service_if_loaded() {
     fi
 
     ui_info "Refreshing loaded gateway service"
-    if ! refresh_output="$({ set +x; "$claw" gateway install --force; } 2>&1 | sed -n -e 's/.*SERVICE_DEFINITION_SEALED:.*/ask the privileged deployment owner to manually repair it/p' -e 's/.*SERVICE_DEFINITION_UNKNOWN:.*/inspect service-definition access and manually repair it/p')"; then
+    if ! refresh_output="$({ set +x; "$claw" gateway install --force; } 2>&1 | sed -n -e 's/^Replacing unsupported Gateway service Node .*; refreshing the install\.$/node-runtime-replaced/p' -e 's/^Replacing missing Gateway service Node .*; refreshing the install\.$/node-runtime-replaced/p' -e 's/.*SERVICE_DEFINITION_SEALED:.*/ask the privileged deployment owner to manually repair it/p' -e 's/.*SERVICE_DEFINITION_UNKNOWN:.*/inspect service-definition access and manually repair it/p')"; then
+        refresh_output="$(printf '%s\n' "$refresh_output" | sed '/^node-runtime-replaced$/d')"
         if [[ -n "$refresh_output" ]]; then
             ui_warn "Code installed; gateway service definition left unchanged; ${refresh_output}"
             ui_info "Run openclaw gateway status --deep, verify the installation owner, and restart it manually if needed."
@@ -3654,6 +3706,9 @@ refresh_gateway_service_if_loaded() {
             return 0
         fi
     else
+        if [[ "$refresh_output" == *node-runtime-replaced* ]]; then
+            ui_success "Gateway service Node runtime replaced"
+        fi
         ui_success "Gateway service metadata refreshed"
     fi
 
@@ -3769,11 +3824,15 @@ main() {
         return 0
     fi
 
-    # bootstrap_gum_temp may perform network downloads before any spinner is available.
-    echo -e "${INFO}Preparing installer interface...${NC}"
-    bootstrap_gum_temp || true
+    # A dry run must stay side-effect free; gum bootstrap may download binaries.
+    if [[ "$DRY_RUN" != "1" ]]; then
+        echo -e "${INFO}Preparing installer interface...${NC}"
+        bootstrap_gum_temp || true
+    fi
     print_installer_banner
-    print_gum_status
+    if [[ "$DRY_RUN" != "1" ]]; then
+        print_gum_status
+    fi
     detect_os_or_die
 
     if [[ "$OS" == "linux" ]]; then
