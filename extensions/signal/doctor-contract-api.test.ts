@@ -1,11 +1,13 @@
 // Signal tests cover doctor contract api plugin behavior.
 import { expectDefined } from "@openclaw/normalization-core";
 import type { OpenClawConfig } from "openclaw/plugin-sdk/config-contracts";
+import { moveSingleAccountChannelSectionToDefaultAccount } from "openclaw/plugin-sdk/setup";
 import { describe, expect, it, vi } from "vitest";
 import { legacyConfigRules, normalizeCompatibilityConfig } from "./doctor-contract-api.js";
 import { resolveSignalAccount } from "./src/accounts.js";
 import { migrateLegacySignalTransportConfig } from "./src/config-compat.js";
 import { signalDoctor } from "./src/doctor.js";
+import { signalSetupAdapter } from "./src/setup-core.js";
 
 function signalConfig(entry: Record<string, unknown>): OpenClawConfig {
   return { channels: { signal: entry } } as never;
@@ -42,21 +44,24 @@ describe("Signal Doctor account key repair", () => {
 
   it.each(["Work Phone", "Default.", "!!!"])(
     "preserves a working inherited account for %s",
-    (key) => {
+    async (key) => {
       const cfg: OpenClawConfig = {
         channels: {
           signal: { account: "+12025550123", accounts: { [key]: { account: "+12025550124" } } },
         },
       };
-      const result = normalizeCompatibilityConfig({ cfg });
+      const promoted = moveSingleAccountChannelSectionToDefaultAccount({
+        cfg,
+        channelKey: "signal",
+        setupSurface: signalSetupAdapter,
+      });
+      const result = normalizeCompatibilityConfig({ cfg: promoted });
       const accountId = key === "Work Phone" ? "work-phone" : "default";
       expect(resolveSignalAccount({ cfg: result.config, accountId }).config.account).toBe(
         "+12025550123",
       );
       expect(result.config.channels?.signal?.accounts).toEqual(cfg.channels?.signal?.accounts);
-      expect(
-        signalDoctor.collectPreviewWarnings?.({ cfg, doctorFixCommand: "openclaw doctor --fix" }),
-      ).toEqual([
+      expect((await signalDoctor.cleanStaleConfig?.({ cfg: result.config }))?.warnings).toEqual([
         expect.stringContaining("Doctor preserved it to avoid changing a working account"),
       ]);
     },
@@ -64,7 +69,7 @@ describe("Signal Doctor account key repair", () => {
 
   it.each(["Work.Phone", "work-phone", "WORK-PHONE"])(
     "reports colliding %s without choosing an entry",
-    (key) => {
+    async (key) => {
       const accounts = {
         "Work Phone": { account: "+12025550123" },
         [key]: { account: "+12025550124" },
@@ -73,9 +78,7 @@ describe("Signal Doctor account key repair", () => {
       const result = normalizeCompatibilityConfig({ cfg });
       expect(result.config.channels?.signal?.accounts).toEqual(accounts);
       expect(result.changes).toEqual([]);
-      expect(
-        signalDoctor.collectPreviewWarnings?.({ cfg, doctorFixCommand: "openclaw doctor --fix" }),
-      ).toEqual([
+      expect((await signalDoctor.cleanStaleConfig?.({ cfg: result.config }))?.warnings).toEqual([
         expect.stringContaining('resolve to "work-phone". Doctor preserved them; rename them'),
       ]);
     },

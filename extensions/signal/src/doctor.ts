@@ -6,9 +6,18 @@ import { migrateLegacySignalTransportConfig } from "./config-compat.js";
 
 export const signalDoctor: ChannelDoctorAdapter = {
   normalizeCompatibilityConfig,
-  collectPreviewWarnings: ({ cfg }) => repairSignalAccountKeys({ cfg }).warnings ?? [],
   cleanStaleConfig: async ({ cfg }) => {
     const { detectSignalTransport } = await import("./transport-detection.runtime.js");
-    return await migrateLegacySignalTransportConfig({ cfg, detect: detectSignalTransport });
+    const transport = await migrateLegacySignalTransportConfig({
+      cfg,
+      detect: detectSignalTransport,
+    });
+    return {
+      ...transport,
+      warnings: [
+        ...(repairSignalAccountKeys({ cfg: transport.config }).warnings ?? []),
+        ...(transport.warnings ?? []),
+      ],
+    };
   },
 };
