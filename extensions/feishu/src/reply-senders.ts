@@ -18,6 +18,7 @@ import {
 import { buildFeishuMediaFallbackText } from "./media-fallback.js";
 import { sendMediaFeishu } from "./media.js";
 import type { MentionTarget } from "./mention-target.types.js";
+import { cardCarriesWholeTable, withinCardTableLimit } from "./presentation-card.js";
 import {
   createFeishuPartialReplyDeliveryError,
   createFeishuReplyDeliveryResult,
@@ -26,7 +27,12 @@ import {
   type FeishuReplyDeliverySource,
 } from "./reply-delivery-result.js";
 import { getFeishuRuntime } from "./runtime.js";
-import { chunkFeishuCardMarkdown, sendMessageFeishu, type CardHeaderConfig } from "./send.js";
+import {
+  chunkFeishuCardMarkdown,
+  sendMessageFeishu,
+  sendStructuredCardFeishu,
+  type CardHeaderConfig,
+} from "./send.js";
 
 type StreamingCloseOutcome = {
   disposition: "closed" | "discarded";
@@ -59,6 +65,7 @@ type FeishuReplySenderContext = {
   closedStreamingSettlements: Map<number, ClosedStreamingSettlement>;
   tableNeedsPostPath: (value: string) => boolean;
   answerTableNeedsPostPath: (value: string) => boolean;
+  resolveCardChrome: () => { header?: CardHeaderConfig; note?: string };
   readIdleSideEffects: () => Promise<void>;
   readVisibleReplySent: () => boolean;
   readReplyOutcome: () => { kind: string; reason?: string } | undefined;
@@ -101,6 +108,7 @@ export function createFeishuReplySenders(ctx: FeishuReplySenderContext) {
     closedStreamingSettlements,
     tableNeedsPostPath,
     answerTableNeedsPostPath,
+    resolveCardChrome,
   } = ctx;
 
   const sendChunkedTextReply = async (paramsLocal: {
@@ -110,15 +118,8 @@ export function createFeishuReplySenders(ctx: FeishuReplySenderContext) {
     useCard: boolean;
     infoKind?: string;
     firstChunkMentions?: MentionTarget[];
-    chunkMentions?: MentionTarget[];
-    header?: CardHeaderConfig;
-    note?: string;
-    sendChunk: (params: {
-      chunk: string;
-      isFirst: boolean;
-      mentions?: MentionTarget[];
-    }) => Promise<FeishuReplyDeliverySource>;
   }): Promise<FeishuReplyDeliveryResult> => {
+    const chrome = paramsLocal.useCard ? resolveCardChrome() : undefined;
     const convertedPostText = materializeFeishuPostMarkdownSoftBreaks(
       core.channel.text.convertMarkdownTables(paramsLocal.text, postTableMode),
     );
@@ -135,7 +136,7 @@ export function createFeishuReplySenders(ctx: FeishuReplySenderContext) {
             limit: textChunkLimit,
             mode: chunkMode,
             firstChunkMentions: paramsLocal.firstChunkMentions,
-            chunkMentions: paramsLocal.chunkMentions,
+            chunkMentions: requiredMentionTargets,
           })
         ? convertedPostText
         : materializeFeishuPostMarkdownSoftBreaks(authoredPostText(paramsLocal));
@@ -149,7 +150,7 @@ export function createFeishuReplySenders(ctx: FeishuReplySenderContext) {
       limit: textChunkLimit,
       mode: chunkMode,
       firstChunkMentions: paramsLocal.firstChunkMentions,
-      chunkMentions: paramsLocal.chunkMentions,
+      chunkMentions: requiredMentionTargets,
       initialChunks,
     };
     const chunks = resolveTextChunksWithFallback(
@@ -157,8 +158,8 @@ export function createFeishuReplySenders(ctx: FeishuReplySenderContext) {
       paramsLocal.useCard
         ? chunkFeishuCardMarkdown({
             ...chunkOptions,
-            header: paramsLocal.header,
-            note: paramsLocal.note,
+            header: chrome?.header,
+            note: chrome?.note,
           })
         : chunkFeishuPostMarkdown(chunkOptions),
     );
@@ -166,15 +167,33 @@ export function createFeishuReplySenders(ctx: FeishuReplySenderContext) {
     const acceptedChunks: string[] = [];
     for (const [index, chunk] of chunks.entries()) {
       const mentions = [
-        ...(paramsLocal.chunkMentions ?? []),
+        ...(requiredMentionTargets ?? []),
         ...(index === 0 ? (paramsLocal.firstChunkMentions ?? []) : []),
       ];
       try {
-        const result = await paramsLocal.sendChunk({
-          chunk,
-          isFirst: index === 0,
-          mentions: mentions.length > 0 ? mentions : undefined,
-        });
+        const sendParams = {
+          cfg,
+          to: sendTarget,
+          text: chunk,
+          replyToMessageId: sendReplyToMessageId,
+          replyInThread: effectiveReplyInThread,
+          allowTopLevelReplyFallback,
+          accountId,
+          ...(mentions.length > 0 ? { mentions } : {}),
+        };
+        const result = paramsLocal.useCard
+          ? await sendStructuredCardFeishu({
+              ...sendParams,
+              header: chrome?.header,
+              note: chrome?.note,
+            })
+          : await sendMessageFeishu({
+              ...sendParams,
+              // The chunker above already converted, or deliberately did not when the
+              // generated markers would not survive the cut. Without this the sender
+              // converts a second time and rebuilds the table the guard just declined.
+              preparedPostText: true,
+            });
         results.push(result);
         acceptedChunks.push(chunk);
         markVisibleReplySent();
@@ -231,22 +250,6 @@ export function createFeishuReplySenders(ctx: FeishuReplySenderContext) {
         useCard: false,
         infoKind,
         firstChunkMentions,
-        chunkMentions: requiredMentionTargets,
-        sendChunk: ({ chunk, mentions }) =>
-          sendMessageFeishu({
-            cfg,
-            to: sendTarget,
-            text: chunk,
-            replyToMessageId: sendReplyToMessageId,
-            replyInThread: effectiveReplyInThread,
-            allowTopLevelReplyFallback,
-            accountId,
-            // The chunker above already converted, or deliberately did not when the
-            // generated markers would not survive the cut. Without this the sender
-            // converts a second time and rebuilds the table the guard just declined.
-            preparedPostText: true,
-            ...(mentions ? { mentions } : {}),
-          }),
       });
     if (matchingBlock) {
       return matchingBlock.catch((error: unknown) => {
@@ -415,11 +418,38 @@ export function createFeishuReplySenders(ctx: FeishuReplySenderContext) {
     return result;
   };
 
+  const ensureVisibleStreamingDelivery = async (
+    result: FeishuReplyDeliveryResult | undefined,
+    content: string | undefined,
+    infoKind?: string,
+  ): Promise<FeishuReplyDeliveryResult | undefined> => {
+    if (result?.visibleReplySent === true || !content?.trim()) {
+      return result;
+    }
+    const { header: cardHeader, note: cardNote } = resolveCardChrome();
+    const useRecoveryCard =
+      !tableNeedsPostPath(content) &&
+      !answerTableNeedsPostPath(content) &&
+      withinCardTableLimit(content) &&
+      // The recovery card promotes text the same way, so it asks the same question.
+      cardCarriesWholeTable(content, (candidate) =>
+        chunkFeishuCardMarkdown({
+          text: candidate,
+          limit: textChunkLimit,
+          mode: chunkMode,
+          header: cardHeader,
+          note: cardNote,
+        }),
+      );
+    return await sendChunkedTextReply({ text: content, useCard: useRecoveryCard, infoKind });
+  };
+
   return {
     sendChunkedTextReply,
     sendPostReply,
     sendMediaReplies,
     ensureNoVisibleReplyFallback,
     claimClosedStreamingResult,
+    ensureVisibleStreamingDelivery,
   };
 }

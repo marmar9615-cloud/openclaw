@@ -44,13 +44,7 @@ import {
 import { streamingStartBackoffUntilByAccount } from "./reply-dispatcher-state.js";
 import { createFeishuReplySenders } from "./reply-senders.js";
 import { getFeishuRuntime } from "./runtime.js";
-import {
-  chunkFeishuCardMarkdown,
-  sendCardFeishu,
-  sendMessageFeishu,
-  sendStructuredCardFeishu,
-  type CardHeaderConfig,
-} from "./send.js";
+import { chunkFeishuCardMarkdown, sendCardFeishu, type CardHeaderConfig } from "./send.js";
 import {
   FeishuStreamingFinalizationError,
   FeishuStreamingSession,
@@ -933,6 +927,7 @@ export function createFeishuReplyDispatcher(params: CreateFeishuReplyDispatcherP
     sendMediaReplies,
     ensureNoVisibleReplyFallback,
     claimClosedStreamingResult,
+    ensureVisibleStreamingDelivery,
   } = createFeishuReplySenders({
     core,
     cfg,
@@ -952,6 +947,10 @@ export function createFeishuReplyDispatcher(params: CreateFeishuReplyDispatcherP
     closedStreamingSettlements,
     tableNeedsPostPath,
     answerTableNeedsPostPath,
+    resolveCardChrome: () => ({
+      header: resolveCardHeader(agentId, identity),
+      note: resolveCardNote(agentId, identity, responsePrefixContextProvider()),
+    }),
     readIdleSideEffects: () => idleSideEffectsPromise,
     readVisibleReplySent: () => visibleReplySent,
     readReplyOutcome: () => replyOutcome,
@@ -967,65 +966,6 @@ export function createFeishuReplyDispatcher(params: CreateFeishuReplyDispatcherP
         settlement.contentClaimed = true;
       }
     }
-  };
-
-  const ensureVisibleStreamingDelivery = async (
-    result: FeishuReplyDeliveryResult | undefined,
-    content: string | undefined,
-    infoKind?: string,
-  ): Promise<FeishuReplyDeliveryResult | undefined> => {
-    if (result?.visibleReplySent === true || !content?.trim()) {
-      return result;
-    }
-    const cardHeader = resolveCardHeader(agentId, identity);
-    const cardNote = resolveCardNote(agentId, identity, responsePrefixContextProvider());
-    const useRecoveryCard =
-      !tableNeedsPostPath(content) &&
-      !answerTableNeedsPostPath(content) &&
-      withinCardTableLimit(content) &&
-      // The recovery card promotes text the same way, so it asks the same question.
-      cardCarriesWholeTable(content, (candidate) =>
-        chunkFeishuCardMarkdown({
-          text: candidate,
-          limit: textChunkLimit,
-          mode: chunkMode,
-          header: cardHeader,
-          note: cardNote,
-        }),
-      );
-    return await sendChunkedTextReply({
-      text: content,
-      useCard: useRecoveryCard,
-      infoKind,
-      header: cardHeader,
-      note: cardNote,
-      chunkMentions: requiredMentionTargets,
-      sendChunk: async ({ chunk, mentions }) =>
-        useRecoveryCard
-          ? await sendStructuredCardFeishu({
-              cfg,
-              to: sendTarget,
-              text: chunk,
-              replyToMessageId: sendReplyToMessageId,
-              replyInThread: effectiveReplyInThread,
-              allowTopLevelReplyFallback,
-              accountId,
-              header: cardHeader,
-              note: cardNote,
-              ...(mentions ? { mentions } : {}),
-            })
-          : await sendMessageFeishu({
-              cfg,
-              to: sendTarget,
-              text: chunk,
-              preparedPostText: true,
-              replyToMessageId: sendReplyToMessageId,
-              replyInThread: effectiveReplyInThread,
-              allowTopLevelReplyFallback,
-              accountId,
-              ...(mentions ? { mentions } : {}),
-            }),
-    });
   };
 
   function queueIdleSideEffects(): Promise<void> {
@@ -1661,30 +1601,8 @@ export function createFeishuReplyDispatcher(params: CreateFeishuReplyDispatcherP
             withinCardTableLimit(text) &&
             cardKeepsTableWhole);
         if (useFallbackCard) {
-          const cardHeader = resolveCardHeader(agentId, identity);
-          const cardNote = resolveCardNote(agentId, identity, responsePrefixContextProvider());
           deliveredResults.push(
-            await sendChunkedTextReply({
-              text,
-              useCard: true,
-              infoKind: info?.kind,
-              header: cardHeader,
-              note: cardNote,
-              chunkMentions: requiredMentionTargets,
-              sendChunk: async ({ chunk, mentions }) =>
-                await sendStructuredCardFeishu({
-                  cfg,
-                  to: sendTarget,
-                  text: chunk,
-                  replyToMessageId: sendReplyToMessageId,
-                  replyInThread: effectiveReplyInThread,
-                  allowTopLevelReplyFallback,
-                  accountId,
-                  header: cardHeader,
-                  note: cardNote,
-                  ...(mentions ? { mentions } : {}),
-                }),
-            }),
+            await sendChunkedTextReply({ text, useCard: true, infoKind: info?.kind }),
           );
         } else {
           const firstChunkMentions =
