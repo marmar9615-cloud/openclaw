@@ -1587,14 +1587,7 @@ export function createFeishuReplyDispatcher(params: CreateFeishuReplyDispatcherP
           // senders accepted rather than what this branch asked them for.
           return mergeFeishuReplyDeliveryResults(deliveredResults);
         }
-        if (info?.kind === "block") {
-          startStreaming();
-          if (streamingStartPromise) {
-            await streamingStartPromise;
-          }
-        }
-
-        if (info?.kind === "final" && useStreamingCard) {
+        if (info?.kind === "block" || (info?.kind === "final" && useStreamingCard)) {
           startStreaming();
           if (streamingStartPromise) {
             await streamingStartPromise;

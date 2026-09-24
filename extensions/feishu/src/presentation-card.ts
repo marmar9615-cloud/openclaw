@@ -643,33 +643,8 @@ export function renderFeishuPresentationPayload({
   const existingFeishuData = isRecord(payload.channelData?.feishu)
     ? payload.channelData.feishu
     : undefined;
-  if (!card) {
-    // Core strips presentation from this post-queue transport copy. Preserve its
-    // own visible contribution separately from prose already delivered by streaming.
-    return {
-      ...payload,
-      text: fallbackText,
-      channelData: {
-        ...payload.channelData,
-        feishu: {
-          ...existingFeishuData,
-          [FEISHU_PRESENTATION_FALLBACK_MARKER]: {
-            hasVisibleContent: Boolean(
-              renderFeishuPresentationFallbackText({ presentation: fallbackPresentation }).trim(),
-            ),
-            // The prose this payload carries is a conversion of the presentation, and a cut
-            // that cannot carry its fences has to fall back to something. The top-level text
-            // is only part of it, so the whole of it travels with the payload, whichever
-            // form the conversion took: a mode that converts nothing still contributed the
-            // blocks, and falling back to the payload's own text would drop them.
-            authoredText: rawFallbackText,
-          },
-          ...(fallbackHasCommand ? { fallbackHasCommand: true } : {}),
-        },
-      },
-    };
-  }
-  // Core consumes presentation before sendPayload; carry the fallback fact.
+  // Core consumes presentation before sendPayload. A fallback retains its own
+  // visible contribution separately from prose already delivered by streaming.
   return {
     ...payload,
     text: fallbackText,
@@ -677,7 +652,23 @@ export function renderFeishuPresentationPayload({
       ...payload.channelData,
       feishu: {
         ...existingFeishuData,
-        card,
+        ...(card
+          ? { card }
+          : {
+              [FEISHU_PRESENTATION_FALLBACK_MARKER]: {
+                hasVisibleContent: Boolean(
+                  renderFeishuPresentationFallbackText({
+                    presentation: fallbackPresentation,
+                  }).trim(),
+                ),
+                // The prose this payload carries is a conversion of the presentation, and a cut
+                // that cannot carry its fences has to fall back to something. The top-level text
+                // is only part of it, so the whole of it travels with the payload, whichever
+                // form the conversion took: a mode that converts nothing still contributed the
+                // blocks, and falling back to the payload's own text would drop them.
+                authoredText: rawFallbackText,
+              },
+            }),
         ...(fallbackHasCommand ? { fallbackHasCommand: true } : {}),
       },
     },

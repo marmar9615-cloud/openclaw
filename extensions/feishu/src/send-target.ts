@@ -1,6 +1,6 @@
 import type { ClawdbotConfig } from "../runtime-api.js";
-import { resolveFeishuRuntimeAccount } from "./accounts.js";
 import { createFeishuClient } from "./client.js";
+import { resolveConfiguredFeishuAccount } from "./configured-client.js";
 import { resolveReceiveIdType, normalizeFeishuTarget } from "./targets.js";
 
 type FeishuSendTarget = {
@@ -17,10 +17,7 @@ export function resolveFeishuSendTarget(params: {
   accountId?: string;
 }): FeishuSendTarget {
   const target = params.to.trim();
-  const account = resolveFeishuRuntimeAccount({ cfg: params.cfg, accountId: params.accountId });
-  if (!account.configured) {
-    throw new Error(`Feishu account "${account.accountId}" not configured`);
-  }
+  const account = resolveConfiguredFeishuAccount(params);
   const client = createFeishuClient(account);
   const receiveId = normalizeFeishuTarget(target);
   if (!receiveId) {
