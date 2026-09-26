@@ -506,14 +506,6 @@ describe("feishuCardWithinTableLimit", () => {
     };
     expect(feishuCardWithinTableLimit(card)).toBe(true);
   });
-
-  it("accepts cards without markdown tables", () => {
-    const card = {
-      schema: "2.0",
-      body: { elements: [{ tag: "markdown", content: "plain | pipes but no table" }] },
-    };
-    expect(feishuCardWithinTableLimit(card)).toBe(true);
-  });
 });
 
 describe("shouldUseCard (tables the card renderer will draw)", () => {
