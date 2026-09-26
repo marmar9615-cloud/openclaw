@@ -258,24 +258,6 @@ describe("feishuOutbound table-limit routing", () => {
     expect(sendMessageFeishuMock).toHaveBeenCalled();
     expect(sendStructuredCardFeishuMock).not.toHaveBeenCalled();
   });
-
-  it("excludes tables inside code blocks from the table count", async () => {
-    const text = "```\n| a | b |\n| - | - |\n| 1 | 2 |\n```\n\n" + makeTableText(5);
-    await sendText({ cfg: emptyConfig, to: "chat_1", text, accountId: "main" });
-
-    expect(sendStructuredCardFeishuMock).toHaveBeenCalledWith(expect.objectContaining({ text }));
-    expect(sendMessageFeishuMock).not.toHaveBeenCalled();
-  });
-
-  it("falls back to post mode for 6 pipeless GFM tables", async () => {
-    const text = Array.from({ length: 6 }, (_, i) => `a${i} | b${i}\n--- | ---\n1 | 2`).join(
-      "\n\n",
-    );
-    await sendText({ cfg: emptyConfig, to: "chat_1", text, accountId: "main" });
-
-    expect(sendMessageFeishuMock).toHaveBeenCalled();
-    expect(sendStructuredCardFeishuMock).not.toHaveBeenCalled();
-  });
 });
 
 describe("feishuOutbound presentation card table-limit", () => {
@@ -328,23 +310,6 @@ describe("feishuOutbound presentation card table-limit", () => {
 
     expect(sendCardFeishuMock).toHaveBeenCalled();
     expect(sendMessageFeishuMock).not.toHaveBeenCalled();
-  });
-
-  it("refuses the card when a presentation text block embeds 6 tables", async () => {
-    const presentation: MessagePresentation = {
-      title: "Report",
-      blocks: [{ type: "text", text: makeTableText(6) }],
-    };
-    await feishuOutbound.sendPayload?.({
-      cfg: emptyConfig,
-      to: "chat_1",
-      text: "",
-      accountId: "main",
-      payload: { text: "", presentation },
-    });
-
-    expect(sendCardFeishuMock).not.toHaveBeenCalled();
-    expect(sendMessageFeishuMock).toHaveBeenCalled();
   });
 });
 

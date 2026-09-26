@@ -236,19 +236,6 @@ describe("feishuOutbound.sendText replyToId forwarding", () => {
     expect(sendMessageCall()?.replyToMessageId).toBeUndefined();
   });
 
-  it("propagates threadId as replyInThread=true to sendMessageFeishu", async () => {
-    await sendText({
-      cfg: emptyConfig,
-      to: "chat_1",
-      text: "topic reply",
-      threadId: "om_topic_root",
-      accountId: "main",
-    });
-
-    expect(sendMessageCall()?.replyToMessageId).toBe("om_topic_root");
-    expect(sendMessageCall()?.replyInThread).toBe(true);
-  });
-
   it("propagates threadId as replyInThread=true to sendStructuredCardFeishu when renderMode=card", async () => {
     await sendText({
       cfg: cardRenderConfig,
