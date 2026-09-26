@@ -91,10 +91,9 @@ function isStreamingStartBackedOff(accountId: string, now = Date.now()): boolean
   return true;
 }
 
-function rememberStreamingStartFailure(accountId: string, now = Date.now()): number {
+function rememberStreamingStartFailure(accountId: string, now = Date.now()): void {
   const backoffUntil = now + STREAMING_START_FAILURE_BACKOFF_MS;
   streamingStartBackoffUntilByAccount.set(accountId, backoffUntil);
-  return backoffUntil;
 }
 
 function normalizeEpochMs(timestamp: number | undefined): number | undefined {

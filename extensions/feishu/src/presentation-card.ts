@@ -416,9 +416,7 @@ function buildFeishuPresentationCardElements(params: {
     }
   }
   for (const block of params.presentation.blocks) {
-    for (const element of buildFeishuCardElementsForBlock(block, renderText)) {
-      elements.push(element);
-    }
+    elements.push(...buildFeishuCardElementsForBlock(block, renderText));
   }
   if (elements.length > 0) {
     return elements;
