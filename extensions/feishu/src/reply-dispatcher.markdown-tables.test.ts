@@ -16,6 +16,7 @@ type StreamingSessionStub = {
   active: boolean;
   credentials: unknown;
   start: ReturnType<typeof vi.fn>;
+  updated: ReturnType<typeof Promise.withResolvers<void>>;
   update: ReturnType<typeof vi.fn>;
   closeWithResult: Mock<FeishuStreamingSession["closeWithResult"]>;
   discard: Mock<FeishuStreamingSession["discard"]>;
@@ -141,7 +142,10 @@ vi.mock("./streaming-card.js", () => {
       start = vi.fn(async () => {
         this.active = true;
       });
-      update = vi.fn(async () => {});
+      updated = Promise.withResolvers<void>();
+      update = vi.fn(async () => {
+        this.updated.resolve();
+      });
       closeWithResult = vi.fn<FeishuStreamingSession["closeWithResult"]>(async (text, _options) => {
         this.active = false;
         return {
@@ -491,7 +495,7 @@ describe("createFeishuReplyDispatcher markdown table modes", () => {
         cfg: tableCfg(tables),
       });
       result.replyOptions.onPartialReply?.({ text: "Reading the roster." });
-      await vi.waitFor(() => expect(streamingInstances).toHaveLength(1));
+      expect(streamingInstances).toHaveLength(1);
       // Partials are snapshots of the whole answer, so the table arrives with the line
       // that opened the preview in front of it.
       result.replyOptions.onPartialReply?.({ text: `Reading the roster.\n\n${text}` });
@@ -614,7 +618,7 @@ describe("createFeishuReplyDispatcher markdown table modes", () => {
     const { result, options } = createBlockTableHarness(tableCfg("code"), true);
     result.replyOptions.onReasoningStream?.({ text: tableMarkdown });
     result.replyOptions.onPartialReply?.({ text: "Roster ready." });
-    await vi.waitFor(() => expect(streamingInstances).toHaveLength(1));
+    expect(streamingInstances).toHaveLength(1);
 
     await options.onIdle?.();
 
@@ -631,7 +635,7 @@ describe("createFeishuReplyDispatcher markdown table modes", () => {
     const { result, options } = createBlockTableHarness(tableCfg("bullets"), true);
     result.replyOptions.onReasoningStream?.({ text: tableMarkdown });
     result.replyOptions.onPartialReply?.({ text: "Roster ready." });
-    await vi.waitFor(() => expect(streamingInstances).toHaveLength(1));
+    expect(streamingInstances).toHaveLength(1);
 
     await options.onIdle?.();
 
@@ -741,7 +745,7 @@ describe("createFeishuReplyDispatcher markdown table modes", () => {
     await options.onReplyStart?.();
     result.replyOptions.onReasoningStream?.({ text: `Checking.\n\n${tableMarkdown}` });
     result.replyOptions.onPartialReply?.({ text: "Inventory complete." });
-    await vi.waitFor(() => expect(streamingInstances).toHaveLength(1));
+    expect(streamingInstances).toHaveLength(1);
     await options.onIdle?.();
 
     const instance = requireStreamingInstance(0);
@@ -841,9 +845,10 @@ describe("createFeishuReplyDispatcher markdown table modes", () => {
     await options.onReplyStart?.();
     result.replyOptions.onReasoningStream?.({ text: `Checking.\n\n${tableMarkdown}` });
     result.replyOptions.onPartialReply?.({ text: "answer part" });
-    await vi.waitFor(() => expect(streamingInstances).toHaveLength(1));
+    expect(streamingInstances).toHaveLength(1);
     const instance = requireStreamingInstance(0);
-    await vi.waitFor(() => expect(instance.update).toHaveBeenCalled());
+    await instance.updated.promise;
+    expect(instance.update).toHaveBeenCalled();
 
     const shown = String(instance.update.mock.calls.at(-1)?.[0] ?? "");
     expect(shown).toContain("Ada");
@@ -922,7 +927,7 @@ describe("createFeishuReplyDispatcher markdown table modes", () => {
         .mockRejectedValueOnce(new Error("later chunk rejected"))
         .mockResolvedValue({ messageId: "om-later-send" });
       result.replyOptions.onPartialReply?.({ text });
-      await vi.waitFor(() => expect(streamingInstances).toHaveLength(1));
+      expect(streamingInstances).toHaveLength(1);
 
       const idleError: unknown = await Promise.resolve(options.onIdle?.()).catch(
         (error: unknown) => error,
@@ -967,7 +972,7 @@ describe("createFeishuReplyDispatcher markdown table modes", () => {
       mentionTargets: mentions,
     });
     result.replyOptions.onPartialReply?.({ text: tableMarkdown });
-    await vi.waitFor(() => expect(streamingInstances).toHaveLength(1));
+    expect(streamingInstances).toHaveLength(1);
 
     await options.onIdle?.();
 
@@ -981,7 +986,7 @@ describe("createFeishuReplyDispatcher markdown table modes", () => {
     const { result, options } = createBlockTableHarness(tableCfg("off"), true);
     result.replyOptions.onReasoningStream?.({ text: tableMarkdown });
     result.replyOptions.onPartialReply?.({ text: "Roster ready." });
-    await vi.waitFor(() => expect(streamingInstances).toHaveLength(1));
+    expect(streamingInstances).toHaveLength(1);
 
     await options.onIdle?.();
 
@@ -1011,7 +1016,7 @@ describe("createFeishuReplyDispatcher markdown table modes", () => {
 
     const harness = createBlockTableHarness(tableCfg("code"), true);
     harness.result.replyOptions.onReasoningStream?.({ text: outgrows });
-    await vi.waitFor(() => expect(streamingInstances).toHaveLength(1));
+    expect(streamingInstances).toHaveLength(1);
     harness.result.replyOptions.onPartialReply?.({ text: answer });
     await harness.options.onIdle?.();
 
@@ -1039,7 +1044,7 @@ describe("createFeishuReplyDispatcher markdown table modes", () => {
     const { result, options } = createBlockTableHarness(tableCfg("block"), true);
     result.replyOptions.onReasoningStream?.({ text: tableMarkdown });
     result.replyOptions.onPartialReply?.({ text: "Roster ready." });
-    await vi.waitFor(() => expect(streamingInstances).toHaveLength(1));
+    expect(streamingInstances).toHaveLength(1);
 
     await options.onIdle?.();
 

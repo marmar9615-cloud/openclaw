@@ -17,6 +17,7 @@ type StreamingSessionStub = {
   start: ReturnType<typeof vi.fn>;
   update: ReturnType<typeof vi.fn>;
   closeWithResult: Mock<FeishuStreamingSession["closeWithResult"]>;
+  discardStarted: ReturnType<typeof Promise.withResolvers<void>>;
   discard: Mock<FeishuStreamingSession["discard"]>;
   isActive: ReturnType<typeof vi.fn>;
 };
@@ -149,7 +150,9 @@ vi.mock("./streaming-card.js", () => {
           messageId: "om_stream",
         };
       });
+      discardStarted = Promise.withResolvers<void>();
       discard = vi.fn<FeishuStreamingSession["discard"]>(async () => {
+        this.discardStarted.resolve();
         this.active = false;
         return { visibleReplySent: false };
       });
@@ -341,17 +344,20 @@ describe("createFeishuReplyDispatcher block table receipts", () => {
     { waiter: "final", phase: "after final clears reasoning", pending: true },
   ])("reuses the off answer receipt $phase and pending=$pending", async ({ waiter, pending }) => {
     const { result, options } = createBlockTableHarness(tableCfg("off"), true);
+    const postStarted = Promise.withResolvers<void>();
     let acceptPost!: (value: { messageId: string }) => void;
-    sendMessageFeishuMock.mockReturnValueOnce(
-      new Promise((resolve) => {
+    sendMessageFeishuMock.mockImplementationOnce(() => {
+      postStarted.resolve();
+      return new Promise((resolve) => {
         acceptPost = resolve;
-      }),
-    );
+      });
+    });
     result.replyOptions.onReasoningStream?.({ text: "Check the team roster." });
     result.replyOptions.onPartialReply?.({ text: tableMarkdown });
-    await vi.waitFor(() => expect(streamingInstances).toHaveLength(1));
+    expect(streamingInstances).toHaveLength(1);
     const block = options.deliver({ text: tableMarkdown }, { kind: "block" });
-    await vi.waitFor(() => expect(sendMessageFeishuMock).toHaveBeenCalledTimes(1));
+    await postStarted.promise;
+    expect(sendMessageFeishuMock).toHaveBeenCalledTimes(1);
     if (!pending) {
       acceptPost({ messageId: "om-reasoned-answer" });
       await block;
@@ -359,7 +365,8 @@ describe("createFeishuReplyDispatcher block table receipts", () => {
     const idle = waiter === "idle" ? Promise.resolve(options.onIdle?.()) : undefined;
     const final =
       waiter === "final" ? options.deliver({ text: tableMarkdown }, { kind: "final" }) : undefined;
-    await vi.waitFor(() => expect(requireStreamingInstance(0).discard).toHaveBeenCalledTimes(1));
+    await requireStreamingInstance(0).discardStarted.promise;
+    expect(requireStreamingInstance(0).discard).toHaveBeenCalledTimes(1);
     if (pending) {
       acceptPost({ messageId: "om-reasoned-answer" });
     }
@@ -386,7 +393,7 @@ describe("createFeishuReplyDispatcher block table receipts", () => {
     const { result, options } = createBlockTableHarness(tableCfg("off"), true);
     result.replyOptions.onReasoningStream?.({ text: "Check the team roster." });
     result.replyOptions.onPartialReply?.({ text: tableMarkdown });
-    await vi.waitFor(() => expect(streamingInstances).toHaveLength(1));
+    expect(streamingInstances).toHaveLength(1);
 
     await options.onIdle?.();
 
@@ -400,7 +407,7 @@ describe("createFeishuReplyDispatcher block table receipts", () => {
     const { result, options } = createBlockTableHarness();
     sendMessageFeishuMock.mockResolvedValueOnce({ messageId: "om-block-post" });
     result.replyOptions.onPartialReply?.({ text: tableMarkdown });
-    await vi.waitFor(() => expect(streamingInstances).toHaveLength(1));
+    expect(streamingInstances).toHaveLength(1);
 
     const block = await options.deliver({ text: tableMarkdown }, { kind: "block" });
     await options.onIdle?.();
@@ -424,7 +431,7 @@ describe("createFeishuReplyDispatcher block table receipts", () => {
     const { result, options } = createBlockTableHarness();
     sendMessageFeishuMock.mockResolvedValueOnce({ messageId: "om-block-before-final" });
     result.replyOptions.onPartialReply?.({ text: tableMarkdown });
-    await vi.waitFor(() => expect(streamingInstances).toHaveLength(1));
+    expect(streamingInstances).toHaveLength(1);
 
     await options.deliver({ text: tableMarkdown }, { kind: "block" });
     const final = await options.deliver({ text: tableMarkdown }, { kind: "final" });
@@ -440,19 +447,23 @@ describe("createFeishuReplyDispatcher block table receipts", () => {
 
   it("waits for the matching block post before settling an idle close and final", async () => {
     const { result, options } = createBlockTableHarness();
+    const postStarted = Promise.withResolvers<void>();
     let acceptPost!: (value: { messageId: string }) => void;
-    sendMessageFeishuMock.mockReturnValueOnce(
-      new Promise((resolve) => {
+    sendMessageFeishuMock.mockImplementationOnce(() => {
+      postStarted.resolve();
+      return new Promise((resolve) => {
         acceptPost = resolve;
-      }),
-    );
+      });
+    });
     result.replyOptions.onPartialReply?.({ text: tableMarkdown });
-    await vi.waitFor(() => expect(streamingInstances).toHaveLength(1));
+    expect(streamingInstances).toHaveLength(1);
 
     const block = options.deliver({ text: tableMarkdown }, { kind: "block" });
-    await vi.waitFor(() => expect(sendMessageFeishuMock).toHaveBeenCalledTimes(1));
+    await postStarted.promise;
+    expect(sendMessageFeishuMock).toHaveBeenCalledTimes(1);
     const idle = Promise.resolve(options.onIdle?.());
-    await vi.waitFor(() => expect(requireStreamingInstance(0).discard).toHaveBeenCalledTimes(1));
+    await requireStreamingInstance(0).discardStarted.promise;
+    expect(requireStreamingInstance(0).discard).toHaveBeenCalledTimes(1);
     const final = await options.deliver({ text: tableMarkdown }, { kind: "final" });
     acceptPost({ messageId: "om-pending-block" });
     await block;
@@ -487,20 +498,23 @@ describe("createFeishuReplyDispatcher block table receipts", () => {
       getFeishuRuntimeMock().channel.text.resolveTextChunkLimit.mockReturnValue(200);
       const { result, options } = createBlockTableHarness();
       const text = `${tableMarkdown}\n${"| Grace | Engineer |\n".repeat(30)}`.trim();
+      const postStarted = Promise.withResolvers<void>();
       let rejectChunk!: (error: Error) => void;
       sendMessageFeishuMock
         .mockResolvedValueOnce(receipt ? { messageId: "om-accepted-prefix" } : {})
-        .mockReturnValueOnce(
-          new Promise((_, reject) => {
+        .mockImplementationOnce(() => {
+          postStarted.resolve();
+          return new Promise((_, reject) => {
             rejectChunk = reject;
-          }),
-        )
+          });
+        })
         .mockResolvedValue({ messageId: "om-unwanted-retry" });
       result.replyOptions.onPartialReply?.({ text });
-      await vi.waitFor(() => expect(streamingInstances).toHaveLength(1));
+      expect(streamingInstances).toHaveLength(1);
 
       const block = options.deliver({ text }, { kind: "block" }).catch((error: unknown) => error);
-      await vi.waitFor(() => expect(sendMessageFeishuMock).toHaveBeenCalledTimes(2));
+      await postStarted.promise;
+      expect(sendMessageFeishuMock).toHaveBeenCalledTimes(2);
       if (!pending) {
         rejectChunk(new Error("later chunk rejected"));
         await block;
@@ -513,7 +527,8 @@ describe("createFeishuReplyDispatcher block table receipts", () => {
         waiter === "final"
           ? options.deliver({ text }, { kind: "final" }).catch((error: unknown) => error)
           : undefined;
-      await vi.waitFor(() => expect(requireStreamingInstance(0).discard).toHaveBeenCalledTimes(1));
+      await requireStreamingInstance(0).discardStarted.promise;
+      expect(requireStreamingInstance(0).discard).toHaveBeenCalledTimes(1);
       if (pending) {
         rejectChunk(new Error("later chunk rejected"));
       }
@@ -571,7 +586,7 @@ describe("createFeishuReplyDispatcher block table receipts", () => {
     createFeishuClientMock.mockReturnValue({ im: { message: { create: createMessage } } });
     sendMessageFeishuMock.mockImplementation(sendMessageFeishu);
     result.replyOptions.onPartialReply?.({ text: tableMarkdown });
-    await vi.waitFor(() => expect(streamingInstances).toHaveLength(1));
+    expect(streamingInstances).toHaveLength(1);
 
     const blockError: unknown = await options
       .deliver({ text: tableMarkdown }, { kind: "block" })
@@ -620,23 +635,27 @@ describe("createFeishuReplyDispatcher block table receipts", () => {
 
   it("retries a rejected in-flight block when idle is the only remaining delivery", async () => {
     const { result, options } = createBlockTableHarness();
+    const postStarted = Promise.withResolvers<void>();
     let rejectPost!: (error: Error) => void;
     sendMessageFeishuMock
-      .mockReturnValueOnce(
-        new Promise((_, reject) => {
+      .mockImplementationOnce(() => {
+        postStarted.resolve();
+        return new Promise((_, reject) => {
           rejectPost = reject;
-        }),
-      )
+        });
+      })
       .mockResolvedValue({ messageId: "om-idle-retry" });
     result.replyOptions.onPartialReply?.({ text: tableMarkdown });
-    await vi.waitFor(() => expect(streamingInstances).toHaveLength(1));
+    expect(streamingInstances).toHaveLength(1);
 
     const block = options
       .deliver({ text: tableMarkdown }, { kind: "block" })
       .catch((error: unknown) => error);
-    await vi.waitFor(() => expect(sendMessageFeishuMock).toHaveBeenCalledTimes(1));
+    await postStarted.promise;
+    expect(sendMessageFeishuMock).toHaveBeenCalledTimes(1);
     const idle = Promise.resolve(options.onIdle?.()).catch((error: unknown) => error);
-    await vi.waitFor(() => expect(requireStreamingInstance(0).discard).toHaveBeenCalledTimes(1));
+    await requireStreamingInstance(0).discardStarted.promise;
+    expect(requireStreamingInstance(0).discard).toHaveBeenCalledTimes(1);
     rejectPost(new Error("pending block unavailable"));
 
     expect(await block).toBeInstanceOf(Error);
@@ -651,25 +670,29 @@ describe("createFeishuReplyDispatcher block table receipts", () => {
 
   it("retries a rejected in-flight block for its matching final before idle", async () => {
     const { result, options } = createBlockTableHarness();
+    const postStarted = Promise.withResolvers<void>();
     let rejectPost!: (error: Error) => void;
     sendMessageFeishuMock
-      .mockReturnValueOnce(
-        new Promise((_, reject) => {
+      .mockImplementationOnce(() => {
+        postStarted.resolve();
+        return new Promise((_, reject) => {
           rejectPost = reject;
-        }),
-      )
+        });
+      })
       .mockResolvedValue({ messageId: "om-final-retry" });
     result.replyOptions.onPartialReply?.({ text: tableMarkdown });
-    await vi.waitFor(() => expect(streamingInstances).toHaveLength(1));
+    expect(streamingInstances).toHaveLength(1);
 
     const block = options
       .deliver({ text: tableMarkdown }, { kind: "block" })
       .catch((error: unknown) => error);
-    await vi.waitFor(() => expect(sendMessageFeishuMock).toHaveBeenCalledTimes(1));
+    await postStarted.promise;
+    expect(sendMessageFeishuMock).toHaveBeenCalledTimes(1);
     const final = options
       .deliver({ text: tableMarkdown }, { kind: "final" })
       .catch((error: unknown) => error);
-    await vi.waitFor(() => expect(requireStreamingInstance(0).discard).toHaveBeenCalledTimes(1));
+    await requireStreamingInstance(0).discardStarted.promise;
+    expect(requireStreamingInstance(0).discard).toHaveBeenCalledTimes(1);
     rejectPost(new Error("pending block unavailable"));
 
     expect(await block).toBeInstanceOf(Error);
@@ -683,7 +706,7 @@ describe("createFeishuReplyDispatcher block table receipts", () => {
   it("still posts an unmatched table preview after a different block post", async () => {
     const { result, options } = createBlockTableHarness();
     result.replyOptions.onPartialReply?.({ text: tableMarkdown });
-    await vi.waitFor(() => expect(streamingInstances).toHaveLength(1));
+    expect(streamingInstances).toHaveLength(1);
 
     const otherTable = tableMarkdown.replace("Ada", "Grace");
     await options.deliver({ text: otherTable }, { kind: "block" });
@@ -700,7 +723,7 @@ describe("createFeishuReplyDispatcher block table receipts", () => {
     const { result, options } = createBlockTableHarness();
     sendMessageFeishuMock.mockResolvedValueOnce({ messageId: "om-accepted-block" });
     result.replyOptions.onPartialReply?.({ text: tableMarkdown });
-    await vi.waitFor(() => expect(streamingInstances).toHaveLength(1));
+    expect(streamingInstances).toHaveLength(1);
     await options.deliver({ text: tableMarkdown }, { kind: "block" });
 
     sendMessageFeishuMock.mockRejectedValueOnce(new Error("later block unavailable"));
@@ -723,7 +746,7 @@ describe("createFeishuReplyDispatcher block table receipts", () => {
     const { result, options } = createBlockTableHarness();
     sendMessageFeishuMock.mockRejectedValueOnce(new Error("block post unavailable"));
     result.replyOptions.onPartialReply?.({ text: tableMarkdown });
-    await vi.waitFor(() => expect(streamingInstances).toHaveLength(1));
+    expect(streamingInstances).toHaveLength(1);
 
     await expect(options.deliver({ text: tableMarkdown }, { kind: "block" })).rejects.toThrow(
       "block post unavailable",
@@ -745,19 +768,21 @@ describe("createFeishuReplyDispatcher block table receipts", () => {
       cfg: tableCfg("off"),
     });
     result.replyOptions.onPartialReply?.({ text });
-    await vi.waitFor(() => expect(streamingInstances).toHaveLength(1));
+    expect(streamingInstances).toHaveLength(1);
     const instance = requireStreamingInstance(0);
     let release!: (closed: StreamingCloseResult) => void;
-    instance.discard.mockReturnValueOnce(
-      new Promise<StreamingCloseResult>((resolve) => {
+    instance.discard.mockImplementationOnce(() => {
+      instance.discardStarted.resolve();
+      return new Promise<StreamingCloseResult>((resolve) => {
         release = resolve;
-      }),
-    );
+      });
+    });
     sendMessageFeishuMock
       .mockRejectedValueOnce(new Error("post unavailable"))
       .mockResolvedValue({ messageId: "om-recovery-post" });
     const idle = Promise.resolve(options.onIdle?.()).catch((error: unknown) => error);
-    await vi.waitFor(() => expect(instance.discard).toHaveBeenCalledTimes(1));
+    await instance.discardStarted.promise;
+    expect(instance.discard).toHaveBeenCalledTimes(1);
     instance.active = false;
     const delivery = await options.deliver({ text }, { kind: "final" });
     const finalization = delivery?.finalization;

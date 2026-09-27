@@ -15,6 +15,7 @@ type StreamingSessionStub = {
   active: boolean;
   credentials: unknown;
   start: ReturnType<typeof vi.fn>;
+  updated: ReturnType<typeof Promise.withResolvers<void>>;
   update: ReturnType<typeof vi.fn>;
   closeWithResult: Mock<FeishuStreamingSession["closeWithResult"]>;
   discard: Mock<FeishuStreamingSession["discard"]>;
@@ -140,7 +141,10 @@ vi.mock("./streaming-card.js", () => {
       start = vi.fn(async () => {
         this.active = true;
       });
-      update = vi.fn(async () => {});
+      updated = Promise.withResolvers<void>();
+      update = vi.fn(async () => {
+        this.updated.resolve();
+      });
       closeWithResult = vi.fn<FeishuStreamingSession["closeWithResult"]>(async (text, _options) => {
         this.active = false;
         return {
@@ -471,7 +475,7 @@ describe("createFeishuReplyDispatcher table limits", () => {
       cfg: tableCfg("off"),
     });
     result.replyOptions.onPartialReply?.({ text: tableMarkdown });
-    await vi.waitFor(() => expect(streamingInstances).toHaveLength(1));
+    expect(streamingInstances).toHaveLength(1);
 
     const delivery = await options.deliver({ text: tableMarkdown }, { kind: "final" });
     await options.onIdle?.();
@@ -498,7 +502,7 @@ describe("createFeishuReplyDispatcher table limits", () => {
         cfg: tableCfg("off"),
       });
       result.replyOptions.onPartialReply?.({ text });
-      await vi.waitFor(() => expect(streamingInstances).toHaveLength(1));
+      expect(streamingInstances).toHaveLength(1);
       const instance = requireStreamingInstance(0);
       let resolveDiscard!: (closed: StreamingCloseResult) => void;
       const discardPromise = new Promise<StreamingCloseResult>((resolve) => {
@@ -508,15 +512,21 @@ describe("createFeishuReplyDispatcher table limits", () => {
       const closePromise = new Promise<StreamingCloseResult>((resolve) => {
         resolveClose = resolve;
       });
-      instance.discard.mockReturnValueOnce(discardPromise);
-      instance.closeWithResult.mockReturnValueOnce(closePromise);
+      const closeStarted = Promise.withResolvers<void>();
+      instance.discard.mockImplementationOnce(() => {
+        closeStarted.resolve();
+        return discardPromise;
+      });
+      instance.closeWithResult.mockImplementationOnce(() => {
+        closeStarted.resolve();
+        return closePromise;
+      });
       sendMessageFeishuMock.mockResolvedValueOnce({ messageId: "om-table-post" });
       const idle = Promise.resolve(options.onIdle?.());
       // Hold whichever way the close leaves the card so the final races it.
-      await vi.waitFor(() =>
-        expect(
-          instance.discard.mock.calls.length + instance.closeWithResult.mock.calls.length,
-        ).toBe(1),
+      await closeStarted.promise;
+      expect(instance.discard.mock.calls.length + instance.closeWithResult.mock.calls.length).toBe(
+        1,
       );
       instance.active = false;
 
@@ -545,15 +555,20 @@ describe("createFeishuReplyDispatcher table limits", () => {
         cfg: tableCfg(tables),
       });
       result.replyOptions.onPartialReply?.({ text: tableMarkdown });
-      await vi.waitFor(() => expect(streamingInstances).toHaveLength(1));
+      expect(streamingInstances).toHaveLength(1);
       const instance = requireStreamingInstance(0);
       let resolveClose!: (closed: StreamingCloseResult) => void;
       const closePromise = new Promise<StreamingCloseResult>((resolve) => {
         resolveClose = resolve;
       });
-      instance.closeWithResult.mockReturnValueOnce(closePromise);
+      const closeStarted = Promise.withResolvers<void>();
+      instance.closeWithResult.mockImplementationOnce(() => {
+        closeStarted.resolve();
+        return closePromise;
+      });
       const idle = Promise.resolve(options.onIdle?.());
-      await vi.waitFor(() => expect(instance.closeWithResult).toHaveBeenCalledTimes(1));
+      await closeStarted.promise;
+      expect(instance.closeWithResult).toHaveBeenCalledTimes(1);
       instance.active = false;
       const committed = String(instance.closeWithResult.mock.calls[0]?.[0]);
 
@@ -615,9 +630,10 @@ describe("createFeishuReplyDispatcher table limits", () => {
     });
 
     result.replyOptions.onPartialReply?.({ text: tableMarkdown });
-    await vi.waitFor(() => expect(streamingInstances).toHaveLength(1));
+    expect(streamingInstances).toHaveLength(1);
     const instance = requireStreamingInstance(0);
-    await vi.waitFor(() => expect(instance.update).toHaveBeenCalled());
+    await instance.updated.promise;
+    expect(instance.update).toHaveBeenCalled();
 
     expect(instance.update.mock.calls.at(-1)?.[0]).toBe(codeText);
   });
@@ -628,9 +644,10 @@ describe("createFeishuReplyDispatcher table limits", () => {
       const { result } = createBlockTableHarness(tableCfg(tables));
 
       result.replyOptions.onPartialReply?.({ text: tableMarkdown });
-      await vi.waitFor(() => expect(streamingInstances).toHaveLength(1));
+      expect(streamingInstances).toHaveLength(1);
       const instance = requireStreamingInstance(0);
-      await vi.waitFor(() => expect(instance.update).toHaveBeenCalled());
+      await instance.updated.promise;
+      expect(instance.update).toHaveBeenCalled();
 
       expect(instance.update.mock.calls.at(-1)?.[0]).toBe(converted());
     },
@@ -670,7 +687,7 @@ describe("createFeishuReplyDispatcher table limits", () => {
     async ({ tables, converted }) => {
       const { result, options } = createBlockTableHarness(tableCfg(tables));
       result.replyOptions.onPartialReply?.({ text: tableMarkdown });
-      await vi.waitFor(() => expect(streamingInstances).toHaveLength(1));
+      expect(streamingInstances).toHaveLength(1);
 
       await options.deliver({ text: tableMarkdown }, { kind: "block" });
       await options.onIdle?.();
@@ -687,7 +704,7 @@ describe("createFeishuReplyDispatcher table limits", () => {
     async ({ tables, converted }) => {
       const { result, options } = createBlockTableHarness(tableCfg(tables));
       result.replyOptions.onPartialReply?.({ text: "Intro line." });
-      await vi.waitFor(() => expect(streamingInstances).toHaveLength(1));
+      expect(streamingInstances).toHaveLength(1);
 
       await options.deliver({ text: `\n\n${tableMarkdown}` }, { kind: "block" });
       await options.onIdle?.();
@@ -715,7 +732,7 @@ describe("createFeishuReplyDispatcher table limits", () => {
     async (tables) => {
       const { result, options } = createBlockTableHarness(tableCfg(tables));
       result.replyOptions.onPartialReply?.({ text: tableMarkdown });
-      await vi.waitFor(() => expect(streamingInstances).toHaveLength(1));
+      expect(streamingInstances).toHaveLength(1);
 
       await options.deliver({ text: tableMarkdown }, { kind: "block" });
       await options.onIdle?.();
@@ -848,13 +865,13 @@ describe("createFeishuReplyDispatcher table limits", () => {
     // and not a preview that never ran.
     const fitting = createBlockTableHarness(tableCfg("code"));
     fitting.result.replyOptions.onPartialReply?.({ text: fits });
-    await vi.waitFor(() => expect(streamingInstances).toHaveLength(1));
+    expect(streamingInstances).toHaveLength(1);
     await fitting.options.deliver({ text: fits }, { kind: "final" });
     expect(streamingUpdateTexts(0)).toContain(convert(fits, "code"));
 
     const outgrowing = createBlockTableHarness(tableCfg("code"));
     outgrowing.result.replyOptions.onPartialReply?.({ text: outgrows });
-    await vi.waitFor(() => expect(streamingInstances).toHaveLength(2));
+    expect(streamingInstances).toHaveLength(2);
     await outgrowing.options.deliver({ text: outgrows }, { kind: "final" });
     expect(streamingUpdateTexts(1)).toEqual([]);
   });
@@ -918,7 +935,7 @@ describe("createFeishuReplyDispatcher table limits", () => {
 
     const { result, options } = createBlockTableHarness(tableCfg("code"));
     result.replyOptions.onPartialReply?.({ text: outgrows });
-    await vi.waitFor(() => expect(streamingInstances).toHaveLength(1));
+    expect(streamingInstances).toHaveLength(1);
     await options.onIdle?.();
 
     expect(requireStreamingInstance(0).closeWithResult).not.toHaveBeenCalled();
@@ -946,7 +963,7 @@ describe("createFeishuReplyDispatcher table limits", () => {
 
     const projected = createBlockTableHarness(tableCfg("code"), true);
     projected.result.replyOptions.onReasoningStream?.({ text: half });
-    await vi.waitFor(() => expect(streamingInstances).toHaveLength(1));
+    expect(streamingInstances).toHaveLength(1);
     projected.result.replyOptions.onPartialReply?.({ text: half });
     await projected.options.onIdle?.();
 
@@ -965,7 +982,7 @@ describe("createFeishuReplyDispatcher table limits", () => {
 
     const authored = createBlockTableHarness(tableCfg("code"), true);
     authored.result.replyOptions.onReasoningStream?.({ text: authoredReasoning });
-    await vi.waitFor(() => expect(streamingInstances).toHaveLength(2));
+    expect(streamingInstances).toHaveLength(2);
     authored.result.replyOptions.onPartialReply?.({ text: authoredAnswer });
     await authored.options.onIdle?.();
 
@@ -990,14 +1007,16 @@ describe("createFeishuReplyDispatcher table limits", () => {
 
     const fitting = createBlockTableHarness(tableCfg("code"), true);
     fitting.result.replyOptions.onReasoningStream?.({ text: tableMarkdown });
-    await vi.waitFor(() => expect(streamingInstances).toHaveLength(1));
+    expect(streamingInstances).toHaveLength(1);
     // Reasoning is quoted before it reaches the card, so the fence carries the quote.
-    await vi.waitFor(() => expect(streamingUpdateTexts(0).join("")).toContain("> ```"));
+    await requireStreamingInstance(0).updated.promise;
+    expect(streamingUpdateTexts(0).join("")).toContain("> ```");
 
     const outgrowing = createBlockTableHarness(tableCfg("code"), true);
     outgrowing.result.replyOptions.onReasoningStream?.({ text: outgrows });
-    await vi.waitFor(() => expect(streamingInstances).toHaveLength(2));
-    await vi.waitFor(() => expect(streamingUpdateTexts(1).length).toBeGreaterThan(0));
+    expect(streamingInstances).toHaveLength(2);
+    await requireStreamingInstance(1).updated.promise;
+    expect(streamingUpdateTexts(1).length).toBeGreaterThan(0);
     const reasoning = streamingUpdateTexts(1).join("");
     expect(reasoning).toContain("| wide |");
     expect(reasoning).not.toContain("```");
