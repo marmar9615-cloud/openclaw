@@ -110,6 +110,14 @@ export function createFeishuReplySenders(ctx: FeishuReplySenderContext) {
     answerTableNeedsPostPath,
     resolveCardChrome,
   } = ctx;
+  const replyTarget = {
+    cfg,
+    to: sendTarget,
+    replyToMessageId: sendReplyToMessageId,
+    replyInThread: effectiveReplyInThread,
+    allowTopLevelReplyFallback,
+    accountId,
+  };
 
   const sendChunkedTextReply = async (paramsLocal: {
     text: string;
@@ -172,13 +180,8 @@ export function createFeishuReplySenders(ctx: FeishuReplySenderContext) {
       ];
       try {
         const sendParams = {
-          cfg,
-          to: sendTarget,
+          ...replyTarget,
           text: chunk,
-          replyToMessageId: sendReplyToMessageId,
-          replyInThread: effectiveReplyInThread,
-          allowTopLevelReplyFallback,
-          accountId,
           ...(mentions.length > 0 ? { mentions } : {}),
         };
         const result = paramsLocal.useCard
@@ -300,13 +303,8 @@ export function createFeishuReplySenders(ctx: FeishuReplySenderContext) {
         caption: "",
         send: async ({ mediaUrl }) => {
           const result = await sendMediaFeishu({
-            cfg,
-            to: sendTarget,
+            ...replyTarget,
             mediaUrl,
-            replyToMessageId: sendReplyToMessageId,
-            replyInThread: effectiveReplyInThread,
-            allowTopLevelReplyFallback,
-            accountId,
             ...(payload.audioAsVoice === true ? { audioAsVoice: true } : {}),
           });
           results.push(
@@ -371,13 +369,8 @@ export function createFeishuReplySenders(ctx: FeishuReplySenderContext) {
       return false;
     }
     await sendMessageFeishu({
-      cfg,
-      to: sendTarget,
+      ...replyTarget,
       text: ctx.noVisibleReplyFallbackText,
-      replyToMessageId: sendReplyToMessageId,
-      replyInThread: effectiveReplyInThread,
-      allowTopLevelReplyFallback,
-      accountId,
       ...(requiredMentionTargets?.length ? { mentions: requiredMentionTargets } : {}),
     });
     markVisibleReplySent();

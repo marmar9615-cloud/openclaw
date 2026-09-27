@@ -471,17 +471,20 @@ function withFeishuOutboundSendContext(adapter: ChannelOutboundAdapter): Channel
 }
 
 async function deliverFeishuOutboundText(ctx: FeishuSendTextContext) {
-  const { cfg, to, text, accountId, replyToId, threadId, identity, onDeliveryResult, signal } = ctx;
-  const { mediaAccess, mediaLocalRoots, mediaReadFile } = ctx;
+  const { cfg, to, text, identity, onDeliveryResult, signal } = ctx;
   // Core asks the cancellation question before every text unit it cuts itself, but it hands
   // formatted text to this adapter whole and never cuts it, so the question is asked once on
   // the way in. The chunked send below asks it again before each message it fans out; the
   // branches that answer with a single upload or card never reach that loop.
   signal?.throwIfAborted();
-  const { replyToMessageId, replyInThread } = resolveFeishuReplyMode({
-    replyToId,
-    threadId,
-  });
+  const { replyToMessageId, replyInThread } = resolveFeishuReplyMode(ctx);
+  const sendParams = {
+    cfg,
+    to,
+    accountId: ctx.accountId ?? undefined,
+    replyToMessageId,
+    replyInThread,
+  };
   const deliveryOptions = feishuOutboundDeliveryOptions(ctx);
   // Scheme A compatibility shim:
   // when upstream accidentally returns a local image path as plain text,
@@ -491,15 +494,11 @@ async function deliverFeishuOutboundText(ctx: FeishuSendTextContext) {
     let mediaResult: Awaited<ReturnType<typeof sendMediaFeishu>>;
     try {
       mediaResult = await sendMediaFeishu({
-        cfg,
-        to,
+        ...sendParams,
         mediaUrl: localImagePath,
-        accountId: accountId ?? undefined,
-        replyToMessageId,
-        replyInThread,
-        mediaAccess,
-        mediaLocalRoots,
-        mediaReadFile,
+        mediaAccess: ctx.mediaAccess,
+        mediaLocalRoots: ctx.mediaLocalRoots,
+        mediaReadFile: ctx.mediaReadFile,
       });
     } catch (err) {
       if (isChannelPartialDeliveryError(err)) {
@@ -509,12 +508,8 @@ async function deliverFeishuOutboundText(ctx: FeishuSendTextContext) {
       console.error(`[feishu] local image path auto-send failed:`, err);
       return toFeishuOutboundResult(
         await sendOutboundText({
-          cfg,
-          to,
+          ...sendParams,
           text: await buildFeishuMediaFallbackText({}),
-          accountId: accountId ?? undefined,
-          replyToMessageId,
-          replyInThread,
           ...deliveryOptions,
         }),
       );
@@ -527,12 +522,8 @@ async function deliverFeishuOutboundText(ctx: FeishuSendTextContext) {
   if (parseFeishuCommentTarget(to)) {
     return toFeishuOutboundResult(
       await sendOutboundText({
-        cfg,
-        to,
+        ...sendParams,
         text,
-        accountId: accountId ?? undefined,
-        replyToMessageId,
-        replyInThread,
         ...deliveryOptions,
       }),
     );
@@ -544,12 +535,8 @@ async function deliverFeishuOutboundText(ctx: FeishuSendTextContext) {
     return toFeishuOutboundResult(
       await reportFeishuOutboundDelivery(
         await sendCardFeishu({
-          cfg,
-          to,
+          ...sendParams,
           card: markRenderedFeishuCard(card),
-          accountId: accountId ?? undefined,
-          replyToMessageId,
-          replyInThread,
         }),
         onDeliveryResult,
       ),
@@ -559,12 +546,8 @@ async function deliverFeishuOutboundText(ctx: FeishuSendTextContext) {
   const title = identity ? resolveFeishuIdentityHeaderTitle(identity) : undefined;
   return toFeishuOutboundResult(
     await sendOutboundText({
-      cfg,
-      to,
+      ...sendParams,
       text,
-      accountId: accountId ?? undefined,
-      replyToMessageId,
-      replyInThread,
       header: title ? { title, template: "blue" } : undefined,
       ...deliveryOptions,
     }),
@@ -772,15 +755,22 @@ export const feishuOutbound: ChannelOutboundAdapter = withFeishuOutboundSendCont
     channel: "feishu",
     sendText: async (ctx) => await deliverFeishuOutboundText(ctx),
     sendMedia: async (ctx: Parameters<FeishuOutboundSendMedia>[0]) => {
-      const { cfg, to, text, mediaUrl, audioAsVoice, accountId, replyToId, threadId } = ctx;
-      const { mediaAccess, mediaLocalRoots, mediaReadFile, onDeliveryResult, signal } = ctx;
-      const { replyToIdSource, replyToMode, propagateMediaUploadFailure = false } = ctx;
-      const nextReplyToId = createFeishuReplyFanout({
-        replyToId,
+      const {
+        cfg,
+        to,
+        text,
+        mediaUrl,
+        audioAsVoice,
+        onDeliveryResult,
         threadId,
-        replyToIdSource,
-        replyToMode,
-      });
+        mediaAccess,
+        mediaLocalRoots,
+        mediaReadFile,
+        propagateMediaUploadFailure,
+        signal,
+      } = ctx;
+      const sendParams = { cfg, to, accountId: ctx.accountId ?? undefined };
+      const nextReplyToId = createFeishuReplyFanout(ctx);
       const nextReplyMode = () => {
         const { replyToMessageId, replyInThread } = resolveFeishuReplyMode({
           replyToId: nextReplyToId(),
@@ -801,10 +791,8 @@ export const feishuOutbound: ChannelOutboundAdapter = withFeishuOutboundSendCont
           : (text?.trim() ?? "");
         return toFeishuOutboundResult(
           await sendOutboundText({
-            cfg,
-            to,
+            ...sendParams,
             text: commentText,
-            accountId: accountId ?? undefined,
             ...nextReplyMode(),
             ...deliveryOptions,
           }),
@@ -814,10 +802,8 @@ export const feishuOutbound: ChannelOutboundAdapter = withFeishuOutboundSendCont
       if (!mediaUrl) {
         return toFeishuOutboundResult(
           await sendOutboundText({
-            cfg,
-            to,
+            ...sendParams,
             text: text ?? "",
-            accountId: accountId ?? undefined,
             ...nextReplyMode(),
             ...deliveryOptions,
           }),
@@ -833,10 +819,8 @@ export const feishuOutbound: ChannelOutboundAdapter = withFeishuOutboundSendCont
       // Send text first if provided, except for Feishu native voice bubbles.
       if (text?.trim() && !suppressTextForVoiceMedia) {
         captionResult = await sendOutboundText({
-          cfg,
-          to,
+          ...sendParams,
           text,
-          accountId: accountId ?? undefined,
           ...nextReplyMode(),
           ...deliveryOptions,
         });
@@ -851,10 +835,8 @@ export const feishuOutbound: ChannelOutboundAdapter = withFeishuOutboundSendCont
       const mediaReplyMode = nextReplyMode();
       try {
         mediaResult = await sendMediaFeishu({
-          cfg,
-          to,
+          ...sendParams,
           mediaUrl,
-          accountId: accountId ?? undefined,
           mediaAccess,
           mediaLocalRoots,
           mediaReadFile,
@@ -885,10 +867,8 @@ export const feishuOutbound: ChannelOutboundAdapter = withFeishuOutboundSendCont
         });
         try {
           const fallbackResult = await sendOutboundText({
-            cfg,
-            to,
+            ...sendParams,
             text: fallbackText,
-            accountId: accountId ?? undefined,
             // A rejected upload never delivered its attempted reply target.
             ...(captionResult ? nextReplyMode() : mediaReplyMode),
             ...deliveryOptions,
@@ -908,10 +888,8 @@ export const feishuOutbound: ChannelOutboundAdapter = withFeishuOutboundSendCont
         if (mediaResult.voiceIntentDegradedToFile && text?.trim()) {
           results.push(
             await sendOutboundText({
-              cfg,
-              to,
+              ...sendParams,
               text,
-              accountId: accountId ?? undefined,
               ...nextReplyMode(),
               ...deliveryOptions,
             }),
