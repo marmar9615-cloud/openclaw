@@ -136,7 +136,7 @@ extensions/codex/doctor-contract-api.ts	1
 extensions/codex/harness.ts	1
 extensions/codex/index.ts	5
 extensions/codex/src/app-server/approval-bridge.ts	1
-extensions/codex/src/app-server/attempt-diagnostics.ts	3
+extensions/codex/src/app-server/attempt-diagnostics.ts	2
 extensions/codex/src/app-server/attempt-notifications.ts	1
 extensions/codex/src/app-server/attempt-startup.ts	1
 extensions/codex/src/app-server/auth-bridge.ts	1
@@ -145,17 +145,16 @@ extensions/codex/src/app-server/client.ts	3
 extensions/codex/src/app-server/compact.ts	1
 extensions/codex/src/app-server/computer-use-cache.ts	1
 extensions/codex/src/app-server/config-utils.ts	1
-extensions/codex/src/app-server/context-engine-projection.ts	3
+extensions/codex/src/app-server/context-engine-projection.ts	1
 extensions/codex/src/app-server/dynamic-tool-build.ts	1
 extensions/codex/src/app-server/dynamic-tools.ts	1
 extensions/codex/src/app-server/effective-mcp-catalog.ts	1
-extensions/codex/src/app-server/event-projector-tool-transcript.ts	2
+extensions/codex/src/app-server/event-projector-tool-transcript.ts	1
 extensions/codex/src/app-server/event-projector-values.ts	1
 extensions/codex/src/app-server/event-projector.ts	1
 extensions/codex/src/app-server/image-payload-sanitizer.ts	3
 extensions/codex/src/app-server/native-mcp-app.ts	9
 extensions/codex/src/app-server/native-skill-isolation.ts	1
-extensions/codex/src/app-server/plan-compaction-state.ts	1
 extensions/codex/src/app-server/plugin-activation.ts	2
 extensions/codex/src/app-server/plugin-inventory.ts	6
 extensions/codex/src/app-server/plugin-metadata-cache.ts	5
@@ -163,16 +162,14 @@ extensions/codex/src/app-server/plugin-thread-app-admission.ts	1
 extensions/codex/src/app-server/protocol-validators.ts	3
 extensions/codex/src/app-server/remote-workspace-media.ts	4
 extensions/codex/src/app-server/run-attempt-context.ts	2
-extensions/codex/src/app-server/run-attempt-resources.ts	13
+extensions/codex/src/app-server/run-attempt-resources.ts	12
 extensions/codex/src/app-server/run-attempt-runtime.ts	1
 extensions/codex/src/app-server/run-attempt-server-requests.ts	2
 extensions/codex/src/app-server/run-attempt-tools.ts	1
 extensions/codex/src/app-server/runtime-artifact.ts	2
-extensions/codex/src/app-server/sandbox-exec-server.ts	1
 extensions/codex/src/app-server/sandbox-exec-server/http.ts	2
 extensions/codex/src/app-server/sandbox-exec-server/json-rpc.ts	3
 extensions/codex/src/app-server/sandbox-exec-server/processes.ts	1
-extensions/codex/src/app-server/sandbox-guard.ts	2
 extensions/codex/src/app-server/scheduled-app-authority.ts	5
 extensions/codex/src/app-server/shared-client.ts	2
 extensions/codex/src/app-server/side-question.ts	5
@@ -185,7 +182,6 @@ extensions/codex/src/app-server/transcript-history-projection.ts	1
 extensions/codex/src/app-server/transcript-mirror.ts	1
 extensions/codex/src/app-server/transport-stdio.ts	1
 extensions/codex/src/app-server/upstream-fork-boundary.ts	1
-extensions/codex/src/app-server/usage-limit-error.ts	2
 extensions/codex/src/command-handlers.ts	3
 extensions/codex/src/command-rpc.ts	1
 extensions/codex/src/conversation-control.ts	1
@@ -199,7 +195,7 @@ extensions/codex/src/session-catalog-parsing.ts	2
 extensions/codex/src/session-catalog-transcript-item.ts	1
 extensions/codex/src/session-catalog.ts	2
 extensions/codex/src/session-cli.ts	1
-extensions/codex/src/session-upstream-activity.ts	3
+extensions/codex/src/session-upstream-activity.ts	1
 extensions/codex/src/supervision-tools.ts	1
 extensions/codex/src/web-search-provider.runtime.ts	1
 extensions/codex/src/web-search-provider.ts	1
@@ -252,7 +248,7 @@ extensions/discord/src/account-inspect.ts	1
 extensions/discord/src/accounts.ts	2
 extensions/discord/src/actions/handle-action.ts	2
 extensions/discord/src/actions/runtime.guild.ts	1
-extensions/discord/src/actions/runtime.messaging.send.ts	3
+extensions/discord/src/actions/runtime.messaging.send.ts	2
 extensions/discord/src/actions/runtime.messaging.shared.ts	6
 extensions/discord/src/actions/runtime.presence.ts	1
 extensions/discord/src/actions/runtime.shared.ts	1
@@ -271,7 +267,6 @@ extensions/discord/src/components-registry.ts	3
 extensions/discord/src/components.builders.ts	1
 extensions/discord/src/components.parse.ts	12
 extensions/discord/src/doctor-contract.ts	4
-extensions/discord/src/internal/api.commands.ts	1
 extensions/discord/src/internal/api.guild.ts	9
 extensions/discord/src/internal/api.messages.ts	9
 extensions/discord/src/internal/api.reactions.ts	1
@@ -287,7 +282,7 @@ extensions/discord/src/internal/entity-cache.ts	3
 extensions/discord/src/internal/gateway-dispatch.ts	7
 extensions/discord/src/internal/gateway-payload.ts	1
 extensions/discord/src/internal/gateway-voice-state-cache.ts	4
-extensions/discord/src/internal/gateway.ts	8
+extensions/discord/src/internal/gateway.ts	7
 extensions/discord/src/internal/interaction-dispatch.ts	6
 extensions/discord/src/internal/interaction-options.ts	2
 extensions/discord/src/internal/interaction-response.ts	2
@@ -801,7 +796,6 @@ extensions/qa-channel/src/channel.ts	5
 extensions/qa-channel/src/gateway.ts	2
 extensions/qa-channel/src/inbound.ts	1
 extensions/qa-channel/src/setup.ts	2
-extensions/qa-lab/src/agentic-parity-report.ts	1
 extensions/qa-lab/src/auth-profile.fixture.ts	3
 extensions/qa-lab/src/browser-runtime.ts	2
 extensions/qa-lab/src/bundled-plugin-staging.ts	4
@@ -837,7 +831,6 @@ extensions/qa-lab/src/live-transports/matrix/scenarios/scenario-runtime-e2ee-cli
 extensions/qa-lab/src/live-transports/matrix/scenarios/scenario-runtime-e2ee-destructive-recovery.ts	1
 extensions/qa-lab/src/live-transports/matrix/scenarios/scenario-runtime-e2ee-state.ts	1
 extensions/qa-lab/src/live-transports/matrix/scenarios/scenario-runtime-state-files.ts	3
-extensions/qa-lab/src/live-transports/matrix/substrate/client-message-content.ts	2
 extensions/qa-lab/src/live-transports/matrix/substrate/client.ts	3
 extensions/qa-lab/src/live-transports/matrix/substrate/config.ts	8
 extensions/qa-lab/src/live-transports/matrix/substrate/e2ee-client.ts	8
@@ -877,7 +870,7 @@ extensions/qa-lab/src/providers/live-config.ts	1
 extensions/qa-lab/src/providers/mock-openai/mock-anthropic-wire.ts	1
 extensions/qa-lab/src/providers/mock-openai/mock-openai-assistant-text.ts	1
 extensions/qa-lab/src/providers/mock-openai/mock-openai-contracts.ts	2
-extensions/qa-lab/src/providers/mock-openai/mock-openai-directives.ts	4
+extensions/qa-lab/src/providers/mock-openai/mock-openai-directives.ts	3
 extensions/qa-lab/src/providers/mock-openai/mock-openai-events.ts	1
 extensions/qa-lab/src/providers/mock-openai/mock-openai-input.ts	6
 extensions/qa-lab/src/providers/mock-openai/mock-openai-responses-websocket.ts	1
@@ -958,7 +951,6 @@ extensions/slack/src/group-policy.ts	1
 extensions/slack/src/http/plugin-routes.ts	1
 extensions/slack/src/http/registry.ts	2
 extensions/slack/src/modal-metadata.ts	1
-extensions/slack/src/monitor/block-text.ts	1
 extensions/slack/src/monitor/context.ts	2
 extensions/slack/src/monitor/event-scope.ts	1
 extensions/slack/src/monitor/events/agent.ts	1
@@ -991,7 +983,7 @@ extensions/slack/src/reply-action-ids.ts	1
 extensions/slack/src/reply-blocks.ts	7
 extensions/slack/src/secret-contract.ts	1
 extensions/slack/src/security-audit.ts	6
-extensions/slack/src/send.ts	4
+extensions/slack/src/send.ts	3
 extensions/slack/src/setup-core.ts	5
 extensions/slack/src/setup-surface.ts	1
 extensions/slack/src/streaming.ts	3
