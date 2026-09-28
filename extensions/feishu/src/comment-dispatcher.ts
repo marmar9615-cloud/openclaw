@@ -59,22 +59,13 @@ export function createFeishuCommentReplyDispatcher(
     accountId: account.accountId,
     supportsBlockTables: false,
   });
-  const typingReaction = createCommentTypingReactionLifecycle({
-    cfg: params.cfg,
-    fileToken: params.fileToken,
-    fileType: params.fileType,
-    replyId: params.replyId,
-    accountId: params.accountId,
-    runtime: params.runtime,
-  });
+  const typingReaction = createCommentTypingReactionLifecycle({ ...params });
 
   const dispatcherOptions: NonNullable<ChannelInboundTurnPlan["dispatcherOptions"]> = {
     responsePrefix: prefixContext.responsePrefix,
     responsePrefixContextProvider: prefixContext.responsePrefixContextProvider,
     humanDelay: resolveHumanDelayConfig(params.cfg, params.agentId),
-    onReplyStart: async () => {
-      await typingReaction.start();
-    },
+    onReplyStart: typingReaction.start,
     onCleanup: () => {
       void typingReaction.cleanup();
     },
@@ -157,7 +148,6 @@ export function createFeishuCommentReplyDispatcher(
   return {
     dispatcherOptions,
     delivery,
-    startTypingReaction: typingReaction.start,
     cleanupTypingReaction: typingReaction.cleanup,
   };
 }
