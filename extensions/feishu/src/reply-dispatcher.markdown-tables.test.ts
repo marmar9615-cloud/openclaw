@@ -246,9 +246,6 @@ describe("createFeishuReplyDispatcher markdown table modes", () => {
       },
     };
   }
-  function useNonStreamingAutoAccount() {
-    resolveFeishuAccountMock.mockReturnValue(createReplyAccount("auto", "off", "feishu"));
-  }
   function makeTableText(count: number): string {
     return Array.from({ length: count }, (_, i) => `| a${i} | b${i} |\n| - | - |\n| 1 | 2 |`).join(
       "\n\n",
@@ -1067,26 +1064,6 @@ describe("createFeishuReplyDispatcher markdown table modes", () => {
       return toTypingDispatcherOptions(result);
     }
 
-    it("routes 5 markdown tables to static card when streaming is off", async () => {
-      useNonStreamingAutoAccount();
-      const options = setupDispatcher();
-      const text = makeTableText(5);
-      await options.deliver({ text }, { kind: "final" });
-
-      expect(sendStructuredCardFeishuMock).toHaveBeenCalledWith(expect.objectContaining({ text }));
-      expect(sendMessageFeishuMock).not.toHaveBeenCalled();
-    });
-
-    it("falls back to post mode for 6 markdown tables when streaming is off", async () => {
-      useNonStreamingAutoAccount();
-      const options = setupDispatcher();
-      const text = makeTableText(6);
-      await options.deliver({ text }, { kind: "final" });
-
-      expect(sendMessageFeishuMock).toHaveBeenCalled();
-      expect(sendStructuredCardFeishuMock).not.toHaveBeenCalled();
-    });
-
     it("falls back to post mode for 6 tables with explicit renderMode=card", async () => {
       resolveFeishuAccountMock.mockReturnValue({
         accountId: "main",
@@ -1161,5 +1138,27 @@ describe("createFeishuReplyDispatcher markdown table modes", () => {
 
     expect(sendMessageFeishuMock.mock.calls[0]?.[0]?.text).toBe(accountTableMarkdown);
     expect(sendMessageFeishuMock.mock.calls[1]?.[0]?.text).toBe("**Ada**  \n• Role: Lead");
+  });
+
+  it("keeps oversized auto mode markdown final text on the chunked card path", async () => {
+    const runtime = getFeishuRuntimeMock();
+    // A budget this small cannot carry a fence at all, and the card decision asks the real
+    // chunker whether its markers survive, so the limit has to be one a fence fits in.
+    runtime.channel.text.resolveTextChunkLimit.mockReturnValue(24);
+    runtime.channel.text.chunkMarkdownTextWithMode.mockReturnValue(["```ts\nx\n```", "tail"]);
+
+    const { options } = createDispatcherHarness({
+      runtime: { log: vi.fn(), error: vi.fn() } as never,
+    });
+    await options.deliver({ text: "```ts\nconst x = 1\n```\ntail" }, { kind: "final" });
+    await options.onIdle?.();
+
+    expect(streamingInstances).toHaveLength(0);
+    expect(runtime.channel.text.chunkMarkdownTextWithMode).toHaveBeenCalledTimes(1);
+    expect(runtime.channel.text.chunkTextWithMode).not.toHaveBeenCalled();
+    expect(sendStructuredCardFeishuMock).toHaveBeenCalledTimes(2);
+    expect(sendStructuredCardFeishuMock.mock.calls[0]?.[0]?.text).toBe("```ts\nx\n```");
+    expect(sendStructuredCardFeishuMock.mock.calls[1]?.[0]?.text).toBe("tail");
+    expect(sendMessageFeishuMock).not.toHaveBeenCalled();
   });
 });
