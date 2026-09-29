@@ -759,7 +759,7 @@ export function createFeishuReplyDispatcher(params: CreateFeishuReplyDispatcherP
           );
         }
         if (result.visibleReplySent) {
-          markVisibleReplySent();
+          visibleReplySent = true;
         }
         // Only a retained final can satisfy a duplicate text payload. Requested removal
         // and actual accepted content are separate facts when provider cleanup fails.
@@ -1261,7 +1261,7 @@ export function createFeishuReplyDispatcher(params: CreateFeishuReplyDispatcherP
     if (isChannelPartialDeliveryError(error)) {
       // Core invokes this before no-visible recovery; keep accepted sends visible even
       // when their normal success bookkeeping could not run.
-      markVisibleReplySent();
+      visibleReplySent = true;
     }
     params.runtime.error?.(
       `feishu[${account.accountId}] ${info.kind} reply failed: ${String(error)}`,
@@ -1276,7 +1276,7 @@ export function createFeishuReplyDispatcher(params: CreateFeishuReplyDispatcherP
     observeMessageSent: true,
     onDelivered: (_payload, info, result) => {
       if (result?.visibleReplySent) {
-        markVisibleReplySent();
+        visibleReplySent = true;
         if (info.kind === "final") {
           replyOutcome = undefined;
         }
@@ -1480,7 +1480,7 @@ export function createFeishuReplyDispatcher(params: CreateFeishuReplyDispatcherP
           ),
           resolvedText,
         );
-        markVisibleReplySent();
+        visibleReplySent = true;
         return mergeFeishuReplyDeliveryResults(deliveredResults, resolvedText);
       }
 
