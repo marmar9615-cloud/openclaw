@@ -106,6 +106,7 @@ type RenderMessageGroupOptions = Omit<
     latestBrowserTabs?: ReadonlyMap<string, BrowserTabSelection>;
     /** Configured main-session key; an agent's main source labels as the agent. */
     mainKey?: string;
+    basePath?: string;
     onOpenSidebar?: (content: SidebarContent) => void;
     loadFullAssistantMessage?: SidebarFullMessageLoader;
     getAssistantMessageExpansion?: (
