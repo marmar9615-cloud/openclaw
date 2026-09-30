@@ -304,42 +304,38 @@ describe("feishuPlugin actions", () => {
     });
   });
 
-  it("falls back to text delivery when presentation text exceeds the card table limit", async () => {
+  // main keeps this in channel.test.ts. The card refusal reads the table mode, and that
+  // lookup reads the registered plugin, which this file registers.
+  it("falls back when presentation text exceeds the card table limit", async () => {
     feishuOutboundSendPayloadMock.mockResolvedValueOnce({
-      channel: "feishu",
-      messageId: "om_fallback",
+      messageId: "om_sent",
       chatId: "oc_group_1",
     });
     const sixTables = Array.from(
       { length: 6 },
       (_, i) => `| a${i} | b${i} |\n| - | - |\n| 1 | 2 |`,
     ).join("\n\n");
-
-    const result = await feishuPlugin.actions?.handleAction?.({
-      action: "send",
-      params: {
-        to: "chat:oc_group_1",
-        message: sixTables,
-        presentation: {
-          title: "Status",
-          blocks: [{ type: "text", text: "Build completed" }],
-        },
-      },
-      cfg,
-      accountId: undefined,
-      toolContext: {},
-    } as never);
-
+    expect(
+      resultDetails(
+        await feishuPlugin.actions?.handleAction?.({
+          channel: "feishu",
+          cfg,
+          action: "send",
+          params: {
+            to: "chat:oc_group_1",
+            message: sixTables,
+            presentation: { title: "Status", blocks: [{ type: "text", text: "Build completed" }] },
+          },
+        }),
+      ),
+    ).toMatchObject({ ok: true, messageId: "om_sent" });
     expect(sendCardFeishuMock).not.toHaveBeenCalled();
-    expect(feishuOutboundSendPayloadMock).toHaveBeenCalledTimes(1);
-    const payloadArgs = requireRecord(
+    expect(feishuOutboundSendPayloadMock).toHaveBeenCalledOnce();
+    expect(
       mockCallArg(feishuOutboundSendPayloadMock, 0, 0, "feishuOutbound.sendPayload"),
-      "sendPayload args",
-    );
-    expect(payloadArgs.to).toBe("chat:oc_group_1");
-    expect(payloadArgs.text).toBe(sixTables);
-    const details = resultDetails(result);
-    expect(details.ok).toBe(true);
-    expect(details.messageId).toBe("om_fallback");
+    ).toMatchObject({
+      to: "chat:oc_group_1",
+      text: sixTables,
+    });
   });
 });
