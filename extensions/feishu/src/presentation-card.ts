@@ -33,6 +33,7 @@ import {
   escapeFeishuCardMarkdownText,
   escapeFeishuCardPlainText,
   resolveSafeFeishuButtonUrl,
+  resolveFeishuButtonType,
   readNativeFeishuCardJson,
   sanitizeNativeFeishuCard,
   type FeishuNativeCard,
@@ -285,16 +286,6 @@ export function renderFeishuPresentationFallbackText(
   });
 }
 
-function mapFeishuButtonType(style: MessagePresentationButton["style"]) {
-  if (style === "primary" || style === "success") {
-    return "primary";
-  }
-  if (style === "danger") {
-    return "danger";
-  }
-  return "default";
-}
-
 function buildFeishuPayloadButton(button: MessagePresentationButton): Record<string, unknown> {
   const url = resolveSafeFeishuButtonUrl(resolveFeishuButtonUrl(button));
   const value = resolveFeishuCommandButtonValue(button);
@@ -319,7 +310,7 @@ function buildFeishuPayloadButton(button: MessagePresentationButton): Record<str
   return {
     tag: "button",
     text: { tag: "plain_text", content: button.label },
-    type: mapFeishuButtonType(button.style),
+    type: resolveFeishuButtonType(button.style),
     behaviors,
   };
 }
