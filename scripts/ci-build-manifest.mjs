@@ -728,11 +728,12 @@ if (runCheckPlan && narrowCheckScope.types) {
   const { resolveChangedCiTsgoInputs } = await import(
     fromTarget("./scripts/lib/tsgo-core-test-shards.mts")
   );
+  const compilerPaths = resolveChangedCiTsgoInputs(changedPaths, existsSync);
   typeGraphBoundaryOwner =
     runNodeFull &&
     !releaseFastLane &&
     narrowCheckScope.additionalGroups.includes("boundaries") &&
-    !resolveChangedCiTsgoInputs(changedPaths, existsSync)
+    (!compilerPaths || compilerPaths.every((file) => file.startsWith("extensions/")))
       ? "additional-checks"
       : "check-plan";
 }
@@ -1226,6 +1227,15 @@ const checkTasks = [
     : narrowCheckScope.checkTasks.includes(row.task);
 });
 
+// Move dependencies only when the preflight-only family is admitted.
+if (runCheckPlan && runNodeFull && !releaseFastLane) {
+  const index = checkTasks.findIndex(({ task }) => task === "dependencies");
+  if (index >= 0) {
+    const { task, ...row } = checkTasks.splice(index, 1)[0];
+    additionalChecks.push({ ...row, group: task });
+  }
+}
+
 // The selected guards row owns the same coercion scan; fast-only plans retain its row.
 if (
   !frozenTarget &&
@@ -1399,14 +1409,13 @@ const manifest = {
           {
             check_name: "android-test-third-party",
             task: "test-third-party",
-            ...(androidTestTier ? { app_lint: "third-party" } : {}),
           },
           ...(!useCompatibleAndroidCi
             ? [
                 {
                   check_name: "android-test-wear",
                   task: "test-wear",
-                  ...(androidTestTier ? { lint: true } : {}),
+                  ...(androidTestTier ? { lint: true, app_lint: "third-party" } : {}),
                 },
               ]
             : []),
@@ -1464,6 +1473,7 @@ if (hybridHostedEligible) {
         "extension-package-boundary",
         "runtime-topology-architecture",
         "plugin-sdk-api-diff",
+        "dependencies",
       ].includes(row.group) || !row.runner.startsWith("blacksmith-"),
   ).length;
   const hostedControlJobs =
@@ -1544,8 +1554,8 @@ const hybridHostedOffload =
   hybridHostedEligible &&
   hybridHostedBaseRows <= HYBRID_HOSTED_BASE_ROW_LIMIT &&
   hybridHostedBaseRows + hybridHostedOffloadRows <= HYBRID_HOSTED_ROW_LIMIT;
-// The measured check rows consume only remaining hosted capacity.
-// Keep the original UI/security decision and all test-runner labels intact.
+// Reserve the previous check-row budget so retaining the boundary on Blacksmith
+// does not expand admission for other hosted checks. Report only actual rows below.
 const hybridHostedCheckRows =
   (manifest.run_check && checkTasks.some(({ task }) => task === "dependencies") ? 1 : 0) +
   (manifest.run_check &&
@@ -1555,9 +1565,16 @@ const hybridHostedCheckRows =
     : 0) +
   (manifest.run_check_additional
     ? manifest.check_additional_matrix.include.filter((row) =>
-        ["extension-package-boundary", "runtime-topology-architecture"].includes(row.group),
+        ["extension-package-boundary", "runtime-topology-architecture", "dependencies"].includes(
+          row.group,
+        ),
       ).length
     : 0);
+const retainedBoundaryRows = manifest.run_check_additional
+  ? manifest.check_additional_matrix.include.filter(
+      (row) => row.group === "extension-package-boundary",
+    ).length
+  : 0;
 const hybridHostedExistingRows =
   hybridHostedBaseRows + (hybridHostedOffload ? hybridHostedOffloadRows : 0);
 // R1's slowest admitted hosted check took 496s including setup. A full
@@ -1593,7 +1610,9 @@ Object.assign(manifest, {
   hybrid_hosted_main_checks: hybridHostedMainChecks,
   hybrid_hosted_base_rows: hybridHostedBaseRows,
   hybrid_hosted_total_rows:
-    hybridHostedRowsWithChecks + (hybridHostedMainChecks ? hybridHostedMainCheckRows : 0),
+    hybridHostedRowsWithChecks -
+    (hybridHostedChecks ? retainedBoundaryRows : 0) +
+    (hybridHostedMainChecks ? hybridHostedMainCheckRows : 0),
 });
 if (runCheckPlan) {
   console.log(

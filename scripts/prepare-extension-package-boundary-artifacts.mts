@@ -6,6 +6,7 @@ import {
   MAX_TIMER_TIMEOUT_MS,
   resolveTimerTimeoutMs,
 } from "../packages/normalization-core/src/number-coercion.ts";
+import { ensureKyselyTypes } from "./generate-kysely-types.mts";
 import {
   listCacheFiles,
   portableRelativePath,
@@ -241,6 +242,7 @@ export async function runNodeSteps(steps: NodeStep[], env: NodeJS.ProcessEnv = p
 
 async function prepareExtensionPackageBoundaryArtifacts(argv: string[] = process.argv.slice(2)) {
   const mode = parseMode(argv);
+  await ensureKyselyTypes(repoRoot);
   const env = resolveLocalCheckEnv(process.env);
   const paired = canPairCiDeclarations(env);
   const { env: compilerEnv } = applyLocalTsgoPolicy(
@@ -312,11 +314,12 @@ async function prepareExtensionPackageBoundaryArtifacts(argv: string[] = process
         // Prime config/toolchain/topology before starting even an uncached owner.
         before.signature(unit.config, args, [], unit.outputRoot);
         if (
-          before.matches(
+          before.matchesReceipt(
             previous,
             unit.config,
             args,
             [...unit.required, inputReceipt],
+            inputReceipt,
             unit.outputRoot,
           )
         ) {

@@ -44,8 +44,8 @@ import {
   resolveSidebarLayoutForBoard,
 } from "./chat-pane-sidebar-layout.ts";
 import {
+  chatSubmitState,
   dismissChatError,
-  initialHistorySubmitState,
   resolveChatPaneFollowUpMode,
 } from "./chat-pane-state.ts";
 import { ChatProviderReviewController } from "./chat-provider-review-controller.ts";
@@ -338,7 +338,7 @@ export class ChatPane extends ChatPaneLayoutRender {
     const composerAvailability = {
       canCompose: composerAccess.canCompose && composerAvailable,
       canSend: composerAccess.canSend && composerAvailable,
-      ...initialHistorySubmitState(state, initialHistoryUnavailable),
+      ...chatSubmitState(state, initialHistoryUnavailable, !catalog && !suggestionViewer),
       modelRequiredReason,
       disabledReason:
         catalogDisabledReason ??
@@ -479,7 +479,7 @@ export class ChatPane extends ChatPaneLayoutRender {
       realtimeTalkDetail: state.realtimeTalkDetail,
       realtimeTalkInputNotice: state.realtimeTalkInputNotice,
       realtimeTalkInputLevel: state.realtimeTalkInputLevel,
-      realtimeTalkConversation: state.realtimeTalkConversation,
+      realtimeTalkConversation: state.realtimeTalkConversationState.entries,
       realtimeTalkVideoStream: state.realtimeTalkVideoStream,
       realtimeTalkCameraDevices: state.realtimeTalkCameraDevices,
       realtimeTalkVideoCapable: state.realtimeTalkVideoCapable,
@@ -558,7 +558,14 @@ export class ChatPane extends ChatPaneLayoutRender {
       composerControls: composerControls?.composerControls ?? nothing,
       permissionPicker: composerControls?.permissionPicker,
       ...this.suggestionChatProps(state.connected, selectedSessionArchived, multiIdentity),
-      ...this.sessionPullRequestChatProps(selectedSession?.sessionId),
+      messageReactions: this.messageReactions,
+      onReact: this.canReactToCurrentSession() ? this.handleMessageReaction : undefined,
+      pullRequests: this.visibleSessionPullRequests,
+      pullRequestsGateway: this.context.gateway,
+      pullRequestsSessionId: selectedSession?.sessionId,
+      pullRequestsBranch: this.sessionPullRequestsBranch,
+      pullRequestsStatus: this.sessionPullRequestsStatus,
+      onDismissPullRequest: this.dismissSessionPullRequest,
       // Until catalog success, a lowercase name may be a hidden/ambiguous alias.
       // Do not mint a checkout link that can prefetch the wrong repository.
       githubRepo: projectCatalog.result ? this.githubRepo : null,
@@ -576,7 +583,6 @@ export class ChatPane extends ChatPaneLayoutRender {
       // so an active follow lock stays pinned to the latest message.
       onAssistantAttachmentLoaded: () => scheduleChatScroll(state),
       getDraft: () => state.chatMessage,
-      onDraftChange: state.handleChatDraftChange,
       onRequestUpdate: state.requestUpdate,
       onHistoryKeydown: state.handleChatInputHistoryKey,
       onSlashIntent: () => refreshChatCommands(state),

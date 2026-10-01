@@ -485,6 +485,8 @@ export const CORE_GATEWAY_METHOD_SPECS = [
   ["session.suggestions.add", "sessions-suggestions", "operator.write", "2026.7"],
   ["session.suggestions.list", "sessions-suggestions", "operator.read", "2026.7"],
   ["session.suggestions.resolve", "sessions-suggestions", "operator.write", "2026.7"],
+  ["session.reactions.set", "sessions-reactions", "operator.write", "2026.9"],
+  ["session.reactions.list", "sessions-reactions", "operator.read", "2026.9"],
   ["session.typing", "sessions-suggestions", "operator.write", "2026.7"],
   // Companion state is process-local and its runner is hard-restricted to
   // read-only workspace and exact-session tools.
@@ -683,4 +685,5 @@ export const CORE_GATEWAY_METHOD_SPECS = [
   ["users.merge", "users", "operator.admin", "2026.9"],
   ["gateway.stop.request", "restart", "operator.admin", "2026.9", CONTROL_PLANE_WRITE],
   ["diagnostics.heapSnapshot", "diagnostics", "operator.admin", "2026.9"],
+  ["sessions.catalog.import", "session-catalog", "operator.write", "2026.9"],
 ] as const satisfies readonly CoreGatewayMethodSpecRow[];

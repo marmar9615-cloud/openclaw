@@ -731,8 +731,8 @@ function runDependencyCheckFixture(options: {
       "fi",
       'printf "%s\\n" "$*" >> "$PNPM_CALLS"',
     ]);
-    const checkShardRun = readCiWorkflow().jobs["check-shard"].steps.find(
-      (step: WorkflowStep) => step.name === "Run check shard",
+    const checkShardRun = readCiWorkflow().jobs["check-additional-shard"].steps.find(
+      (step: WorkflowStep) => step.name === "Run dependency checks",
     ).run;
     const run = spawnSync("bash", ["-c", checkShardRun], {
       cwd: root,
@@ -1121,7 +1121,7 @@ describe("release fast lane", () => {
     expect(result.outputs.release_fast_lane).toBe("true");
     expect(result.outputs.run_docker_seed_e2e).toBe("true");
     expect(result.outputs.docker_seed_lanes).toBe(
-      "published-upgrade-survivor mcp-channels cron-mcp-cleanup mcp-code-mode-gateway",
+      "mcp-channels cron-mcp-cleanup mcp-code-mode-gateway",
     );
     expect(result.outputs.run_qa_smoke_ci).toBe("true");
     expect(result.outputs.run_check).toBe("true");
@@ -1254,6 +1254,7 @@ describe("ci workflow guards", () => {
       },
       {
         path: "extensions/telegram/src/send.ts",
+        boundaryOwner: "additional-checks",
         tasks: ["guards", "prod-types", "lint", "dependencies", "test-types"],
         fastTasks: [],
         baselineRatchets: true,
@@ -1265,6 +1266,20 @@ describe("ci workflow guards", () => {
         lintExtensionStripes: [3],
         lintCentralScripts: false,
         graphs: ["extensions", "extensions-test", "test-root"],
+      },
+      {
+        path: "src/wizard/i18n/locales/en.ts",
+        nodeDataOnly: true,
+        tasks: ["guards", "prod-types", "lint", "dependencies", "test-types"],
+        fastTasks: [],
+        baselineRatchets: false,
+        contracts: false,
+        channelContracts: false,
+        performance: false,
+        coreStripes: [1, 4],
+        lintCoreStripes: [1, 2],
+        lintExtensionStripes: [],
+        lintCentralScripts: true,
       },
     ])(
       "emits and wires narrow families for $path",
@@ -1281,6 +1296,8 @@ describe("ci workflow guards", () => {
         lintExtensionStripes,
         lintCentralScripts,
         graphs,
+        boundaryOwner,
+        nodeDataOnly = false,
       }) => {
         const paths = [changedPath];
         const lintPlan: NonNullable<Awaited<ReturnType<typeof createChangedCiLintPlan>>> = {
@@ -1319,6 +1336,7 @@ describe("ci workflow guards", () => {
           runnerProfile: "hybrid",
           changedPaths: paths,
           ciTypeGraphNames: graphs,
+          scopeEnv: { OPENCLAW_CI_NODE_TEST_DATA_ONLY: String(nodeDataOnly) },
           ciLintPlan: lintPlan,
           changedPlannerSource: changedPlannerSource(),
         });
@@ -1343,7 +1361,43 @@ describe("ci workflow guards", () => {
             workflow.jobs["check-shard"].strategy.matrix,
             context,
           ).include.map((row: { task: string }) => row.task),
-        ).toEqual(tasks);
+        ).toEqual(nodeDataOnly ? tasks : tasks.filter((task) => task !== "dependencies"));
+        const additional = workflow.jobs["check-additional-shard"];
+        const dependencyRows = evaluateWorkflowExpression(
+          additional.strategy.matrix,
+          context,
+        ).include.filter((row: { group: string }) => row.group === "dependencies");
+        expect(dependencyRows).toEqual(
+          tasks.includes("dependencies") && !nodeDataOnly
+            ? [
+                {
+                  check_name: "check-dependencies",
+                  group: "dependencies",
+                  runner: "blacksmith-16vcpu-ubuntu-2404",
+                },
+              ]
+            : [],
+        );
+        if (nodeDataOnly) {
+          expect(manifest.outputs.run_check).toBe("true");
+          expect(manifest.outputs.run_check_additional).toBe("false");
+        }
+        if (dependencyRows.length) {
+          // The dependency gate must start while the installed compiler planner is pending.
+          expect(additional.needs).toEqual(["preflight"]);
+          expect(
+            evaluateWorkflowExpression(additional.if, {
+              ...context,
+              additionalNeeds: { "check-plan": { outputs: {}, result: "skipped" } },
+            }),
+          ).toBe(true);
+          expect(
+            evaluateWorkflowExpression(additional["runs-on"], {
+              ...context,
+              matrix: dependencyRows[0],
+            }),
+          ).toBe("blacksmith-16vcpu-ubuntu-2404");
+        }
         expect(
           JSON.parse(
             expectDefined(manifest.outputs.checks_fast_core_matrix, "fast check matrix"),
@@ -1370,7 +1424,7 @@ describe("ci workflow guards", () => {
         );
         expect(
           evaluateWorkflowExpression(boundaryStep.env.TYPE_GRAPH_BOUNDARY_OWNER, context),
-        ).toBe(tasks.includes("test-types") ? "check-plan" : "");
+        ).toBe(boundaryOwner ?? (tasks.includes("test-types") ? "check-plan" : ""));
         expect(
           evaluateWorkflowExpression(
             workflow.jobs["check-test-types-hosted-core-shard"].if,
@@ -1453,6 +1507,16 @@ describe("ci workflow guards", () => {
     it.each([
       { paths: ["src/config/settings.json"], owner: "check-plan", boundaryRow: false },
       {
+        paths: ["extensions/telegram/src/send.ts"],
+        owner: "additional-checks",
+        boundaryRow: true,
+      },
+      {
+        paths: ["extensions/telegram/src/send.ts", "docs/plugins/example.md", "ui/styles/chat.css"],
+        owner: "additional-checks",
+        boundaryRow: true,
+      },
+      {
         paths: ["src/shared/runtime.ts", "src/config/settings.json"],
         owner: "additional-checks",
         boundaryRow: true,
@@ -1466,10 +1530,20 @@ describe("ci workflow guards", () => {
           eventName: "pull_request",
           runnerProfile: "hybrid",
           changedPaths: paths,
+          ciTypeGraphNames: paths[0]?.startsWith("extensions/")
+            ? ["extensions", "extensions-test", "test-root"]
+            : undefined,
           changedPlannerSource: changedPlannerSource(),
         });
         expect(manifest.status, manifest.output).toBe(0);
         expect(manifest.outputs.type_graph_boundary_owner).toBe(owner);
+        if (paths[0]?.startsWith("extensions/")) {
+          expect(JSON.parse(manifest.checkPlanOutputs.core_type_matrix!).include).toEqual([]);
+        }
+        expect(
+          JSON.parse(expectDefined(manifest.outputs.check_plan_input_json, "check plan input"))
+            .typeGraphBoundaryOwner,
+        ).toBe(owner);
         const rows = JSON.parse(
           expectDefined(manifest.outputs.check_additional_matrix, "additional matrix"),
         ).include;
@@ -2350,8 +2424,8 @@ describe("ci workflow guards", () => {
             ].includes(name),
         );
       }
-      const packageStep = workflow.jobs["docker-seed-e2e"].steps.find(
-        (step: WorkflowStep) => step.name === "Prepare main Docker smoke package",
+      const packageStep = workflow.jobs["docker-seed-e2e"].steps.find((step: WorkflowStep) =>
+        step.run?.includes("scripts/package-openclaw-for-docker.mjs"),
       );
       expect(evaluateWorkflowExpression("${{ " + packageStep.if + " }}", context)).toBe(!release);
     },
@@ -3112,6 +3186,28 @@ describe("ci workflow guards", () => {
       expect(preflight.outputs.hybrid_hosted_main_checks).toBe(
         "${{ steps.manifest.outputs.hybrid_hosted_main_checks }}",
       );
+      const boundaryRoute = readCiWorkflow().jobs["check-additional-shard"]["runs-on"];
+      for (const runnerBackend of ["hybrid", "runson", "github"] as const) {
+        for (const runAttempt of [1, 2]) {
+          expect(
+            evaluateWorkflowExpression(boundaryRoute, {
+              eventName: "pull_request",
+              repository: "openclaw/openclaw",
+              runnerBackend,
+              runAttempt,
+              preflightOutputs: { hybrid_hosted_checks: "true" },
+              matrix: {
+                group: "extension-package-boundary",
+                runner: "blacksmith-32vcpu-ubuntu-2404",
+              },
+            }),
+          ).toBe(
+            runnerBackend === "github" || runAttempt > 1
+              ? "ubuntu-24.04"
+              : "blacksmith-32vcpu-ubuntu-2404",
+          );
+        }
+      }
       const baseline = manifestWithHostedNodeRows(0);
       const originalBase = Number(baseline.outputs.hybrid_hosted_base_rows);
       for (const healthy of ["true", "false", ""]) {
@@ -3132,7 +3228,7 @@ describe("ci workflow guards", () => {
           });
           expect(Number(manifest.outputs.hybrid_hosted_total_rows)).toBe(hosted.length);
           expect(hosted.length - withoutChecks.length).toBe(
-            (admitted ? 8 : 0) + (mainAdmitted ? 2 : 0),
+            (admitted ? 7 : 0) + (mainAdmitted ? 2 : 0),
           );
           expect(hosted).not.toContain("build-artifacts");
           expect(
@@ -3142,7 +3238,7 @@ describe("ci workflow guards", () => {
             expect(
               hosted.filter((row) => row === name).length -
                 withoutChecks.filter((row) => row === name).length,
-            ).toBe(admitted ? (name === "check-shard" ? 1 + (mainAdmitted ? 2 : 0) : 2) : 0);
+            ).toBe(admitted ? (name === "check-shard" ? 1 + (mainAdmitted ? 2 : 0) : 1) : 0);
           }
           // The old UI/security decision remains independent of the new check admission.
           expect(manifest.outputs.hybrid_hosted_offload).toBe(String(baseRows <= 40));
@@ -3264,9 +3360,9 @@ describe("ci workflow guards", () => {
     invalid?: boolean;
   }>([
     { eventName: "pull_request" as const, production: false, expected: false },
-    { eventName: "pull_request" as const, production: true, expected: true },
+    { eventName: "pull_request" as const, production: true, expected: false },
     { eventName: "workflow_dispatch", releaseGate: true, production: false, expected: false },
-    { eventName: "workflow_dispatch", releaseGate: true, production: true, expected: true },
+    { eventName: "workflow_dispatch", releaseGate: true, production: true, expected: false },
     { eventName: "push" as const, production: false, expected: true },
     { eventName: "push" as const, production: true, expected: true },
     { eventName: "workflow_dispatch" as const, production: false, expected: true },
@@ -7415,7 +7511,7 @@ describe("ci workflow guards", () => {
       'elif [[ "${{ needs.preflight.outputs.frozen_target }}" != "true" ]]; then',
     );
     expect(ratchetRun.run).toContain(
-      "for required_script in check:max-lines-ratchet check:assertion-safety config:docs:check plugins:inventory:check; do",
+      "for required_script in check:max-lines-ratchet check:assertion-safety check:test-timeout-race-ratchet config:docs:check plugins:inventory:check; do",
     );
     expect(ratchetRun.run).toContain('has_package_script "$required_script"');
     expect(ratchetRun.env.RATCHET_PR_HEAD_SHA).toBe(
@@ -7478,6 +7574,14 @@ describe("ci workflow guards", () => {
       /if \[\[ -n "\$\{RATCHET_PR_HEAD_SHA:-\}" \]\]; then\s+pnpm check:line-cap-ratchet --base "\$base_ref"\s+fi/u,
     );
     expect(ratchetRun.run).toContain('pnpm check:assertion-safety --base "$base_ref"');
+    expect(ratchetRun.run).toContain('pnpm check:test-timeout-race-ratchet --base "$base_ref"');
+    const mainPushRatchets = workflow.jobs["security-fast"].steps.find(
+      (step: WorkflowStep) => step.name === "Check main push ratchets and protocol additions",
+    );
+    expect(mainPushRatchets.env.BASE_SHA).toBe("${{ steps.diff_base.outputs.sha }}");
+    expect(mainPushRatchets.run).toContain(
+      'pnpm check:test-timeout-race-ratchet --base "$BASE_SHA"',
+    );
     expect(ratchetRun.run).toContain("pnpm config:docs:check");
     expect(ratchetRun.run).toContain("pnpm plugins:inventory:check");
     expect(maxLinesRatchet).toContain('} from "./check-env-var-count.mts";');
@@ -7871,12 +7975,12 @@ describe("ci workflow guards", () => {
           {
             check_name: "android-test-third-party",
             task: "test-third-party",
-            app_lint: "third-party",
           },
           {
             check_name: "android-test-wear",
             task: "test-wear",
             lint: true,
+            app_lint: "third-party",
           },
           { check_name: "android-ktlint", task: "ktlint", app_lint: "play" },
         ]);
@@ -8434,12 +8538,12 @@ describe("ci workflow guards", () => {
       {
         check_name: "android-test-third-party",
         task: "test-third-party",
-        app_lint: "third-party",
       },
       {
         check_name: "android-test-wear",
         task: "test-wear",
         lint: true,
+        app_lint: "third-party",
       },
       { check_name: "android-ktlint", task: "ktlint", app_lint: "play" },
     ]);
