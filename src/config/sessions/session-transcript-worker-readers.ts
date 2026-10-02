@@ -175,6 +175,7 @@ export function createSessionHistoryWorkerReaders(
             value.kind !== "rpc" &&
             value.kind !== "http" &&
             value.kind !== "delta" &&
+            value.kind !== "inline-visibility" &&
             value.kind !== "recent" &&
             value.kind !== "message-by-id" &&
             value.kind !== "message-count" &&
@@ -251,6 +252,18 @@ export function createSessionHistoryWorkerReaders(
       (input) => ({ kind: "current-turn-entry", ...input }),
       (value) => value,
     ),
+    readRecentActiveEvents: reader(
+      "recent-active-events",
+      "recent active events",
+      (input) => ({ kind: "recent-active-events", ...input }),
+      (value) => value.events,
+    ),
+    readLatestActiveMessage: reader(
+      "latest-active-message",
+      "the latest active message",
+      (input) => ({ kind: "latest-active-message", ...input }),
+      (value) => value.message,
+    ),
     readUsageCache: reader(
       "usage-refresh-lock",
       "usage cache",
@@ -315,6 +328,12 @@ export function createSessionHistoryWorkerReaders(
       "pending input receipts",
       (input) => ({ kind: "session-pending-input-receipts", ...input }),
       (value) => value.receipts,
+    ),
+    readConversationDelivery: reader(
+      "conversation-delivery",
+      "a conversation delivery receipt",
+      (input) => ({ kind: "conversation-delivery", ...input }),
+      (value) => value.record,
     ),
     readGoalOperationReceipt: reader(
       "goal-operation-receipt",
