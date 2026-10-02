@@ -9,8 +9,13 @@ import type {
   ReadSessionMessagesResult,
   SessionTranscriptReader,
 } from "../../gateway/session-transcript-read-kernel.js";
+import type {
+  SessionTranscriptSummaryQuery,
+  SessionTranscriptSummaryResult,
+} from "../../gateway/session-transcript-summary.js";
 import type { AgentHistoryActivity } from "../../infra/agent-activity-events.js";
-import type { ConversationRecord } from "./conversation-registry.js";
+import type { ConversationRecord } from "./conversation-registry.types.js";
+import type { LegacyCompactionMetrics } from "./legacy-compaction-history.js";
 import type {
   SessionTranscriptDisplayDeltaResult,
   SessionTranscriptMessageByIdOptions,
@@ -44,7 +49,7 @@ export type ChatHistoryResponsePage<Messages extends unknown[] | Uint8Array = un
 };
 
 export type ChatHistoryPage = {
-  encodedResponse?: ChatHistoryResponsePage<Uint8Array>;
+  encodedResponse?: ChatHistoryResponsePage<Uint8Array<ArrayBuffer>>;
   windowReset?: boolean;
   activeLeafEntryId?: string | null;
   deltaCursor?: string;
@@ -65,6 +70,7 @@ export type ChatHistoryPage = {
 
 export type ChatHistoryPageParams = {
   encodeResponse?: boolean;
+  compactionMetrics?: LegacyCompactionMetrics;
   entry: InternalSessionEntry | undefined;
   provider: string | undefined;
   sessionId: string | undefined;
@@ -158,6 +164,10 @@ export type SessionHistoryWorkerRequest =
       kind: "inline-visibility";
       params: { target: SessionTranscriptReadScope; lookup: SessionHistorySubagentLookup };
     }
+  | {
+      kind: "summary";
+      params: { target: SessionTranscriptReadScope; query: SessionTranscriptSummaryQuery };
+    }
   | { kind: "reactions"; params: { target: SessionTranscriptReadScope } }
   | {
       kind: "conversation-binding";
@@ -232,6 +242,7 @@ export type SessionHistoryWorkerResult =
   | { kind: "active-accounting"; result: SessionTranscriptAccountingSnapshot }
   | { kind: "bounded-tail"; result: SessionTranscriptBoundedMessageTailPage }
   | { kind: "inline-visibility"; subagentCoordination: SessionHistorySubagentFacts }
+  | { kind: "summary"; result: SessionTranscriptSummaryResult }
   | { kind: "reactions"; result: Record<string, StoredMessageReactionSummary[]> }
   | { kind: "conversation-binding"; result: SessionConversationBinding | null }
   | { kind: "artifacts"; result: SessionArtifactReadResult }

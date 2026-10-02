@@ -325,11 +325,11 @@ export async function createSessionRowProjection(params: records.ProjectionOptio
     }
     epoch++;
     const presentationOnly = metadata.invalidate(change) && !change.factsInvalidated;
+    const catalogOnly = "all" in change && change.scope === "catalog" && !change.factsInvalidated;
     if (!presentationOnly) {
-      revisions.invalidate(true);
+      revisions.invalidate(!catalogOnly);
     }
     if ("all" in change) {
-      const catalogOnly = change.scope === "catalog" && !change.factsInvalidated;
       if (!presentationOnly && !catalogOnly) {
         databaseRevision++;
       }
@@ -519,10 +519,9 @@ export async function createSessionRowProjection(params: records.ProjectionOptio
     onSessionIdentityMutation(generations.mutate),
   ];
   function isCurrent(row: records.Row) {
-    const current = isIncognitoSessionKey(row.key)
-      ? lookup({ ...row, storePath: row.storeTarget.storePath })
-      : rows.get(records.identity(row));
-    return records.isCurrentGeneration(row, current);
+    return row.privateSource
+      ? records.isPrivateSourceCurrent(row.privateSource)
+      : records.isCurrentGeneration(row, rows.get(records.identity(row)));
   }
   function prepareRead() {
     if (topologyDirty) {

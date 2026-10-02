@@ -1705,13 +1705,6 @@ export function createFeishuReplyDispatcher(params: CreateFeishuReplyDispatcherP
       onCompactionEnd: previewStreamingEnabled ? () => updateStreamingStatusLine("") : undefined,
     },
     ensureNoVisibleReplyFallback,
-    getVisibleReplyState: () => ({
-      visibleReplySent,
-      skippedFinalReason:
-        replyOutcome?.kind === "skipped" || replyOutcome?.kind === "suppressed"
-          ? replyOutcome.reason
-          : null,
-    }),
   };
 }
 /* oxlint-disable max-lines -- TODO: split this grandfathered oversized file. */

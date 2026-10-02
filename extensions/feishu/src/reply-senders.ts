@@ -337,7 +337,6 @@ export function createFeishuReplySenders(ctx: FeishuReplySenderContext) {
               },
       });
       if (degradedVoiceFallbackText && !sentFallbackText) {
-        sentFallbackText = true;
         results.push(await sendPostReply(degradedVoiceFallbackText, "final"));
       }
     } catch (error: unknown) {
