@@ -89,11 +89,6 @@ function isStreamingStartBackedOff(accountId: string, now = Date.now()): boolean
   return true;
 }
 
-function rememberStreamingStartFailure(accountId: string, now = Date.now()): void {
-  const backoffUntil = now + STREAMING_START_FAILURE_BACKOFF_MS;
-  streamingStartBackoffUntilByAccount.set(accountId, backoffUntil);
-}
-
 function normalizeEpochMs(timestamp: number | undefined): number | undefined {
   if (!Number.isFinite(timestamp) || timestamp === undefined || timestamp <= 0) {
     return undefined;
@@ -363,8 +358,6 @@ export function createFeishuReplyDispatcher(params: CreateFeishuReplyDispatcherP
     reject: (error: unknown) => void;
   };
   const pendingStreamingDeliveries: PendingStreamingDelivery[] = [];
-  type StreamTextUpdateMode = "snapshot" | "delta";
-
   const markVisibleReplySent = () => {
     visibleReplySent = true;
   };
@@ -490,7 +483,7 @@ export function createFeishuReplyDispatcher(params: CreateFeishuReplyDispatcherP
     nextText: string,
     options?: {
       dedupeWithLastPartial?: boolean;
-      mode?: StreamTextUpdateMode;
+      mode?: "snapshot" | "delta";
     },
   ) => {
     if (!nextText) {
@@ -523,17 +516,6 @@ export function createFeishuReplyDispatcher(params: CreateFeishuReplyDispatcherP
       }
       lastSnapshotTextLength = nextText.length;
     }
-    const answerPreview = previewAnswerText();
-    if (answerPreview !== undefined) {
-      flushStreamingCardUpdate(buildCombinedStreamText(reasoningText, answerPreview));
-    }
-  };
-
-  const queueReasoningUpdate = (nextThinking: string) => {
-    if (!nextThinking) {
-      return;
-    }
-    reasoningText = nextThinking;
     const answerPreview = previewAnswerText();
     if (answerPreview !== undefined) {
       flushStreamingCardUpdate(buildCombinedStreamText(reasoningText, answerPreview));
@@ -585,7 +567,10 @@ export function createFeishuReplyDispatcher(params: CreateFeishuReplyDispatcherP
         });
         streamingStartBackoffUntilByAccount.delete(account.accountId);
       } catch (error) {
-        rememberStreamingStartFailure(account.accountId);
+        streamingStartBackoffUntilByAccount.set(
+          account.accountId,
+          Date.now() + STREAMING_START_FAILURE_BACKOFF_MS,
+        );
         params.runtime.error?.(
           `feishu[${account.accountId}]: streaming start failed; using non-streaming card fallback for ${
             STREAMING_START_FAILURE_BACKOFF_MS / 1000
@@ -892,13 +877,10 @@ export function createFeishuReplyDispatcher(params: CreateFeishuReplyDispatcherP
     }
   };
 
-  const updateStreamingStatusLine = (
-    nextStatusLine: string,
-    options?: { startIfNeeded?: boolean },
-  ) => {
+  const updateStreamingStatusLine = (nextStatusLine: string, startIfNeeded = true) => {
     statusLine = nextStatusLine;
     const hasStreamingSession = Boolean(streaming?.isActive() || streamingStartPromise);
-    if (!hasStreamingSession && (options?.startIfNeeded === false || renderMode !== "card")) {
+    if (!hasStreamingSession && (!startIfNeeded || renderMode !== "card")) {
       return false;
     }
     startStreaming();
@@ -1670,7 +1652,14 @@ export function createFeishuReplyDispatcher(params: CreateFeishuReplyDispatcherP
             startStreaming();
             // Convert before the italic line wrapping, the same order the delivered
             // reasoning path uses, so the table is still parseable when the mode runs.
-            queueReasoningUpdate(previewReasoningMessage(payload.text));
+            const nextThinking = previewReasoningMessage(payload.text);
+            if (nextThinking) {
+              reasoningText = nextThinking;
+              const answerPreview = previewAnswerText();
+              if (answerPreview !== undefined) {
+                flushStreamingCardUpdate(buildCombinedStreamText(reasoningText, answerPreview));
+              }
+            }
             return false;
           }
         : undefined,
@@ -1697,7 +1686,7 @@ export function createFeishuReplyDispatcher(params: CreateFeishuReplyDispatcherP
           }
         : undefined,
       onAssistantMessageStart: previewStreamingEnabled
-        ? () => updateStreamingStatusLine("", { startIfNeeded: false })
+        ? () => updateStreamingStatusLine("", false)
         : undefined,
       onCompactionStart: previewStreamingEnabled
         ? () => updateStreamingStatusLine("📦 **Compacting context...**")

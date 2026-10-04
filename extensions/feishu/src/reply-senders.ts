@@ -391,19 +391,15 @@ export function createFeishuReplySenders(ctx: FeishuReplySenderContext) {
       }
       return settlement;
     }
-    let latestKey: number | undefined;
-    for (const [key, settlement] of closedStreamingSettlements) {
+    let result: ClosedStreamingSettlement | undefined;
+    for (const settlement of closedStreamingSettlements.values()) {
       if (
         settlement.contentClaimed !== true &&
         (content === undefined || settlement.content === content)
       ) {
-        latestKey = key;
+        result = settlement;
       }
     }
-    if (latestKey === undefined) {
-      return undefined;
-    }
-    const result = closedStreamingSettlements.get(latestKey);
     if (result) {
       result.contentClaimed = true;
     }
