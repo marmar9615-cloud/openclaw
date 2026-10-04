@@ -44,7 +44,10 @@ import {
   readWorkerPlacementRecoveryCandidatesInDatabase,
   readWorkerSessionPlacementProjectionInDatabase,
 } from "../gateway/worker-environments/placement-read-projection.js";
-import { readWorkerPlacementChangeSnapshotInDatabase } from "../gateway/worker-environments/placement-row-codec.js";
+import {
+  readWorkerPlacementChangeSnapshotInDatabase,
+  readWorkerPlacementsForReconcileInDatabase,
+} from "../gateway/worker-environments/placement-row-codec.js";
 import { readWorkspaceJournalInDatabase } from "../gateway/worker-environments/placement-workspace-journal.js";
 import { isWorkspaceJournalReadCommand } from "../gateway/worker-environments/placement-workspace-journal.types.js";
 import { listPendingWorkerWorkspaceResultsInDatabase } from "../gateway/worker-environments/placement-workspace-result.js";
@@ -55,7 +58,6 @@ import { inspectGatewayOwnerLeaseForMaintenance } from "../infra/gateway-owner-l
 import { bunSqliteNativeCleanupPending } from "../infra/node-sqlite.js";
 import { inspectCurrentConversationBindingRecordInDatabase } from "../infra/outbound/current-conversation-bindings.kernel.js";
 import { readOutboundDeliveriesInDatabase } from "../infra/outbound/delivery-queue-storage.kernel.js";
-import { getAdmittedSqliteSchemaFacts } from "../infra/sqlite-schema-facts.js";
 import { runSqliteDeferredTransactionSync } from "../infra/sqlite-transaction.js";
 import { runWithSqliteWorkerStateContext } from "../infra/sqlite-worker-state-context.js";
 import {
@@ -82,7 +84,10 @@ import { isTuiLastSessionReadCommand } from "../tui/tui-last-session.contract.js
 import { readTuiLastSessionCommand } from "../tui/tui-last-session.kernel.js";
 import { readAgentDatabaseDeletionSnapshotInDatabase } from "./agent-deletion-journal.read.js";
 import { readBackupRunsInDatabase } from "./backup-run-records.kernel.js";
-import { readConfigMachineStateRowInDatabase } from "./config-machine-state.js";
+import {
+  isConfigMachineStateReadCommand,
+  readConfigMachineStateCommandInDatabase,
+} from "./config-machine-state.js";
 import { readGitHubPublicationSessionLifecycle } from "./github-publication-session-lifecycles.js";
 import { readOnboardingRecommendationsInDatabase } from "./onboarding-recommendations.kernel.js";
 import { readRegisteredAgentDatabaseRows } from "./openclaw-agent-db-registry.read.js";
@@ -474,16 +479,8 @@ serveOwnedWorkerTasks(
                 record: readOnboardingRecommendationsInDatabase(db, command.configKey),
               };
             }
-            if (command.type === "nodeHost.config" || command.type === "operator.channelPolicy") {
-              return {
-                type: command.type,
-                // Activation may precede deferred publication; never issue authority before v19.
-                row:
-                  command.type === "operator.channelPolicy" &&
-                  (getAdmittedSqliteSchemaFacts(db)?.userVersion ?? 0) < 19
-                    ? undefined
-                    : readConfigMachineStateRowInDatabase(db, command.type),
-              };
+            if (isConfigMachineStateReadCommand(command)) {
+              return readConfigMachineStateCommandInDatabase(db, command);
             }
             if (command.type === "workspace.snapshot") {
               return {
@@ -629,6 +626,12 @@ serveOwnedWorkerTasks(
               return {
                 type: command.type,
                 candidates: readWorkerPlacementRecoveryCandidatesInDatabase(db),
+              };
+            }
+            if (command.type === "workers.placementPreservation") {
+              return {
+                type: command.type,
+                placements: readWorkerPlacementsForReconcileInDatabase(db),
               };
             }
             if (command.type === "workers.placementPendingResults") {

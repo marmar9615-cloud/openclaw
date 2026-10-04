@@ -78,6 +78,12 @@ history; replacing the code alone cannot undo a migration. The original
 failed update still exits nonzero after the agent finishes, even if the repair
 succeeds.
 
+On Linux, systemd can unload an inactive unit after the updater stops it. The
+owning updater reloads that unit's metadata when rechecking admission, retaining
+the original manager and service identity. This does not start the service or
+rewrite its definition. A later refusal still uses the recorded stop to restore
+the previous Gateway; a service that was already stopped remains stopped.
+
 After activation succeeds, a failure to read or publish update reporting leaves
 the updated installation in place. Reporting failures do not trigger package
 rollback. The command still exits nonzero when required finalization cannot
@@ -225,6 +231,16 @@ from the new installation before restarting through the service manager.
 
 ## `update repair`
 
+An older updater can leave package activation at `prepared` after refusing an
+update before publication. Run `openclaw update repair` from an installation
+containing this fix. Repair verifies that the original package and launchers are
+unchanged, aborts the unused preparation, and retires its recovery artifacts so
+the next update can proceed. It does not publish the staged candidate. An active
+updater, changed package or launcher, or unfinished state restoration keeps its
+existing recovery checks. A candidate cannot patch the older updater already
+running; use the manual installation hop below if the installed CLI lacks this
+repair.
+
 For a package update stranded by an older updater's launcher ownership checks,
 use the manual installation hop, then repair from the new CLI at the same root:
 
@@ -243,6 +259,17 @@ The original failed history entry remains intact. The pending package-recovery
 gate then clears, so another update can proceed. Same-identity recovery keeps its
 original sealed-helper checks; missing packages, active update owners, and pending
 database or configuration restoration still require their existing recovery path.
+
+If recovery instead reports `managed handoff lease database identity changed`,
+run `openclaw update repair` from a CLI containing this fix. Repair acquires fresh
+update ownership on the current lease database and closes the orphaned package
+operation as `recovery-lease-identity-changed`. It warns with the old operation ID
+and retained artifact path, leaves the installed package and launchers in place,
+and clears package admission for the next update. The original helper cannot
+recover against a replaced lease database. Matching lease identities keep the
+original recovery checks; another live update owner still prevents settlement.
+No recovery artifacts are deleted. An older installed CLI cannot obtain this fix
+from a candidate it has not yet staged; use the manual installation hop above.
 
 Rerun update finalization after the core package already changed but later
 repair work did not finish cleanly. This is the supported recovery path when

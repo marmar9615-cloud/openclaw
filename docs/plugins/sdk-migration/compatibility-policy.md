@@ -209,6 +209,19 @@ canonical worker writer; incognito retains its process-local owner until its
 separate cutover. Schemas, persisted bytes, and supported update paths are
 unchanged. Removal still requires explicit breaking-release approval.
 
+### ACP metadata binding compatibility
+
+`openclaw/plugin-sdk/acp-runtime` retains the one-argument
+`readAcpSessionEntryAsync` callable published in `v2026.9.8`. The returned ACP
+manager's `loadSessionEntryAsync` and `upsertSessionMeta` injection callbacks also
+keep their released one-argument signatures and Promise results. Plugins do not
+supply internal incognito actor bindings.
+
+The `acp-session-metadata-released-signatures` compatibility record is active:
+these APIs remain supported, with no deprecation warning or required migration.
+Worker activation must preserve them; changing these released contracts requires
+an explicitly approved Plugin SDK major release.
+
 ### Native session generation authority
 
 The production-private `agent-harness-session-runtime` subpath retains the
@@ -577,6 +590,23 @@ displays either the date or named gate, counts local code/doc references, lists
 `removal-pending` records with their blockers and surface-token reader
 references, and summarizes the private memory-host SDK bridge. Those reader
 references are triage signals, not published-artifact proof.
+
+### TTS preference resolution
+
+Host reply dispatch now prepares the machine-owned TTS preference path through
+the shared-state reader and carries that fact through prompt and delivery work.
+The released `resolveTtsPrefsPath(config)` call in
+`openclaw/plugin-sdk/agent-runtime` and `openclaw/plugin-sdk/tts-runtime` still
+returns a `string` synchronously. `buildTtsSystemPromptHint(config, agentId,
+options)` also keeps its synchronous return value, and the existing asynchronous
+`maybeApplyTtsToPayload` call does not require prepared preferences.
+
+The `tts-preferences-sync-resolution` compatibility record retains the legacy
+synchronous resolution path. Removal requires a public preparation contract,
+migration of published plugin readers, and explicit approval for a breaking
+Plugin SDK release at the next major-version gate. No removal date or runtime
+warning is introduced. Existing plugins need no change for this host update;
+preference-file reads, stored data, and update behavior stay the same.
 
 ### Media legacy projection
 
