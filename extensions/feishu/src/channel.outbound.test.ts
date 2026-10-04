@@ -6,7 +6,8 @@ const sendPayload = vi.hoisted(() => vi.fn());
 const sendText = vi.hoisted(() => vi.fn());
 const sendFormattedText = vi.hoisted(() => vi.fn());
 
-vi.mock("./channel.runtime.js", () => ({
+vi.mock("./channel.runtime.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./channel.runtime.js")>()),
   feishuChannelRuntime: {
     feishuOutbound: { renderPresentation, sendPayload, sendText, sendFormattedText },
   },

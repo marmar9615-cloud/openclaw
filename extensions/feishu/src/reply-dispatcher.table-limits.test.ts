@@ -58,38 +58,15 @@ const resolvePinnedHostnameWithPolicyMock = vi.hoisted(() =>
   }),
 );
 
-function mergeStreamingText(
-  previousText: string | undefined,
-  nextText: string | undefined,
-): string {
-  const previous = typeof previousText === "string" ? previousText : "";
-  const next = typeof nextText === "string" ? nextText : "";
-  if (!next) {
-    return previous;
-  }
-  if (!previous || next === previous) {
-    return next;
-  }
-  if (next.startsWith(previous) || next.includes(previous)) {
-    return next;
-  }
-  if (previous.startsWith(next) || previous.includes(next)) {
-    return previous;
-  }
-  const maxOverlap = Math.min(previous.length, next.length);
-  for (let overlap = maxOverlap; overlap > 0; overlap -= 1) {
-    if (previous.slice(-overlap) === next.slice(0, overlap)) {
-      return `${previous}${next.slice(overlap)}`;
-    }
-  }
-  return `${previous}${next}`;
-}
-
-vi.mock("./accounts.js", () => ({
+vi.mock("./accounts.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./accounts.js")>()),
   resolveFeishuAccount: resolveFeishuAccountMock,
   resolveFeishuRuntimeAccount: resolveFeishuAccountMock,
 }));
-vi.mock("./runtime.js", () => ({ getFeishuRuntime: getFeishuRuntimeMock }));
+vi.mock("./runtime.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./runtime.js")>()),
+  getFeishuRuntime: getFeishuRuntimeMock,
+}));
 vi.mock("openclaw/plugin-sdk/plugin-runtime", async (importOriginal) => {
   const actual = await importOriginal<Record<string, unknown>>();
   return { ...actual, getGlobalHookRunner: getGlobalHookRunnerMock };
@@ -100,7 +77,8 @@ vi.mock("./send.js", async (importOriginal) => ({
   sendStructuredCardFeishu: sendStructuredCardFeishuMock,
   sendCardFeishu: sendCardFeishuMock,
 }));
-vi.mock("./media.js", () => ({
+vi.mock("./media.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./media.js")>()),
   sendMediaFeishu: sendMediaFeishuMock,
   shouldSuppressFeishuTextForVoiceMedia: shouldSuppressFeishuTextForVoiceMediaMock,
 }));
@@ -111,16 +89,21 @@ vi.mock("openclaw/plugin-sdk/ssrf-runtime", async (importOriginal) => {
     resolvePinnedHostnameWithPolicy: resolvePinnedHostnameWithPolicyMock,
   };
 });
-vi.mock("./client.js", () => ({ createFeishuClient: createFeishuClientMock }));
+vi.mock("./client.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./client.js")>()),
+  createFeishuClient: createFeishuClientMock,
+}));
 vi.mock("./targets.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./targets.js")>()),
   resolveReceiveIdType: resolveReceiveIdTypeMock,
 }));
-vi.mock("./typing.js", () => ({
+vi.mock("./typing.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./typing.js")>()),
   addTypingIndicator: addTypingIndicatorMock,
   removeTypingIndicator: removeTypingIndicatorMock,
 }));
-vi.mock("./streaming-card.js", () => {
+vi.mock("./streaming-card.js", async (importOriginal) => {
+  const { mergeStreamingText } = await import("./card-test-helpers.js");
   class FeishuStreamingFinalizationError extends Error {
     result: { visibleReplySent: boolean; content?: string; messageId?: string };
 
@@ -133,6 +116,7 @@ vi.mock("./streaming-card.js", () => {
     }
   }
   return {
+    ...(await importOriginal<typeof import("./streaming-card.js")>()),
     FeishuStreamingFinalizationError,
     mergeStreamingText,
     FeishuStreamingSession: class {

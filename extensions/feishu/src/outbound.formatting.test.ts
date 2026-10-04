@@ -16,7 +16,8 @@ const createFeishuClientMock = vi.hoisted(() =>
 const deliverCommentThreadTextMock = vi.hoisted(() => vi.fn());
 const cleanupAmbientCommentTypingReactionMock = vi.hoisted(() => vi.fn(async () => false));
 
-vi.mock("./media.js", () => ({
+vi.mock("./media.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./media.js")>()),
   sendMediaFeishu: vi.fn(),
   sendStickerFeishu: vi.fn(),
   shouldSuppressFeishuTextForVoiceMedia: () => false,
@@ -31,15 +32,18 @@ vi.mock("./send.js", async (importOriginal) => ({
   sendStructuredCardFeishu: vi.fn(),
 }));
 
-vi.mock("./client.js", () => ({
+vi.mock("./client.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./client.js")>()),
   createFeishuClient: createFeishuClientMock,
 }));
 
-vi.mock("./drive.js", () => ({
+vi.mock("./drive.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./drive.js")>()),
   deliverCommentThreadText: deliverCommentThreadTextMock,
 }));
 
-vi.mock("./comment-reaction.js", () => ({
+vi.mock("./comment-reaction.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./comment-reaction.js")>()),
   cleanupAmbientCommentTypingReaction: cleanupAmbientCommentTypingReactionMock,
 }));
 

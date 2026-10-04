@@ -54,15 +54,18 @@ const feishuOutboundSendTextMock = vi.hoisted(() => vi.fn());
 const feishuOutboundSendMediaMock = vi.hoisted(() => vi.fn());
 const feishuOutboundSendPayloadMock = vi.hoisted(() => vi.fn());
 
-vi.mock("./probe.js", () => ({
+vi.mock("./probe.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./probe.js")>()),
   probeFeishu: probeFeishuMock,
 }));
 
-vi.mock("./client.js", () => ({
+vi.mock("./client.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./client.js")>()),
   createFeishuClient: createFeishuClientMock,
 }));
 
-vi.mock("./channel.runtime.js", () => ({
+vi.mock("./channel.runtime.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./channel.runtime.js")>()),
   feishuChannelRuntime: {
     addReactionFeishu: addReactionFeishuMock,
     createPinFeishu: createPinFeishuMock,

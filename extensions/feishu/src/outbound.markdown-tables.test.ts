@@ -55,7 +55,8 @@ vi.mock("openclaw/plugin-sdk/ssrf-runtime", async (importOriginal) => {
   };
 });
 
-vi.mock("./media.js", () => ({
+vi.mock("./media.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./media.js")>()),
   sendMediaFeishu: sendMediaFeishuMock,
   sendStickerFeishu: vi.fn(),
   shouldSuppressFeishuTextForVoiceMedia: shouldSuppressFeishuTextForVoiceMediaMock,
@@ -88,7 +89,8 @@ vi.mock("./send.js", async (importOriginal) => ({
       : undefined,
 }));
 
-vi.mock("./runtime.js", () => ({
+vi.mock("./runtime.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./runtime.js")>()),
   getFeishuRuntime: () => ({
     channel: {
       text: {
@@ -98,15 +100,18 @@ vi.mock("./runtime.js", () => ({
   }),
 }));
 
-vi.mock("./client.js", () => ({
+vi.mock("./client.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./client.js")>()),
   createFeishuClient: createFeishuClientMock,
 }));
 
-vi.mock("./drive.js", () => ({
+vi.mock("./drive.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./drive.js")>()),
   deliverCommentThreadText: deliverCommentThreadTextMock,
 }));
 
-vi.mock("./comment-reaction.js", () => ({
+vi.mock("./comment-reaction.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./comment-reaction.js")>()),
   cleanupAmbientCommentTypingReaction: cleanupAmbientCommentTypingReactionMock,
 }));
 

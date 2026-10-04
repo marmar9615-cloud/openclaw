@@ -11,7 +11,8 @@ import type { ClawdbotConfig } from "../runtime-api.js";
 
 const createFeishuClientMock = vi.hoisted(() => vi.fn());
 
-vi.mock("./client.js", () => ({
+vi.mock("./client.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./client.js")>()),
   createFeishuClient: createFeishuClientMock,
 }));
 
