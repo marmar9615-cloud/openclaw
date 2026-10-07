@@ -179,7 +179,6 @@ export function createFeishuReplyDispatcher(params: CreateFeishuReplyDispatcherP
   const threadReplyMode = threadReply === true;
   const effectiveReplyInThread = threadReplyMode ? true : replyInThread;
   const allowTopLevelReplyFallback =
-    effectiveReplyInThread === true &&
     threadReplyMode &&
     rootId !== undefined &&
     sendReplyToMessageId !== undefined &&
@@ -299,8 +298,7 @@ export function createFeishuReplyDispatcher(params: CreateFeishuReplyDispatcherP
   // A preview exists before modifying hooks accept the logical payload, so suppress all eager
   // CardKit activity whenever either hook could rewrite or cancel the eventual send.
   const previewStreamingEnabled = streamingEnabled && !modifyingHooksRegistered;
-  const blockStreamingEnabled = resolveChannelStreamingBlockEnabled(account.config);
-  const coreBlockStreamingEnabled = blockStreamingEnabled === true;
+  const coreBlockStreamingEnabled = resolveChannelStreamingBlockEnabled(account.config) === true;
   const reasoningPreviewEnabled = previewStreamingEnabled && params.allowReasoningPreview === true;
 
   let streaming: FeishuStreamingSession | null = null;
@@ -944,7 +942,7 @@ export function createFeishuReplyDispatcher(params: CreateFeishuReplyDispatcherP
           const ownsCurrentClose = (completion: PendingStreamingDelivery) =>
             closeOutcome.generation !== undefined &&
             completion.streamingGeneration === closeOutcome.generation;
-          if (completions.some((completion) => ownsCurrentClose(completion))) {
+          if (completions.some(ownsCurrentClose)) {
             claimClosedStreamingResult(closeOutcome.generation, undefined);
           }
           for (const completion of completions) {
@@ -1198,9 +1196,9 @@ export function createFeishuReplyDispatcher(params: CreateFeishuReplyDispatcherP
       if (previewStreamingEnabled && renderMode === "card") {
         startStreaming();
       }
-      await Promise.resolve(typingCallbacks?.onReplyStart?.());
+      await typingCallbacks?.onReplyStart?.();
     },
-    onIdle: () => queueIdleSideEffects(),
+    onIdle: queueIdleSideEffects,
     onCleanup: () => {
       typingCallbacks?.onCleanup?.();
     },
@@ -1620,8 +1618,7 @@ export function createFeishuReplyDispatcher(params: CreateFeishuReplyDispatcherP
     delivery,
     replyOptions: {
       onModelSelected,
-      disableBlockStreaming:
-        typeof blockStreamingEnabled === "boolean" ? !blockStreamingEnabled : true,
+      disableBlockStreaming: !coreBlockStreamingEnabled,
       onPartialReply: previewStreamingEnabled
         ? (payload: ReplyPayload) => {
             if (!payload.text) {
