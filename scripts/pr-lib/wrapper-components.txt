@@ -111,6 +111,7 @@ packages/normalization-core/src/promise-like.ts
 packages/normalization-core/src/record-coerce.ts
 packages/normalization-core/src/response-bytes.ts
 packages/normalization-core/src/result.ts
+packages/normalization-core/src/stable-node-path.ts
 packages/normalization-core/src/stable-stringify.ts
 packages/normalization-core/src/string-coerce.ts
 packages/normalization-core/src/string-normalization.ts
@@ -786,7 +787,9 @@ src/infra/agent-run-registry.ts
 src/infra/agent-run-usage.ts
 src/infra/approval-resolution-ref.ts
 src/infra/backoff.ts
+src/infra/backup-audit-paths.ts
 src/infra/backup-scratch.ts
+src/infra/backup-volatile-filter.ts
 src/infra/boundary-file-read.ts
 src/infra/boundary-path.ts
 src/infra/bun-sqlite-close-probe.ts
@@ -832,6 +835,7 @@ src/infra/ed25519-signature.ts
 src/infra/env-log.runtime.ts
 src/infra/env.ts
 src/infra/errno.ts
+src/infra/child-runtime-viability.ts
 src/infra/error-graph-internal.ts
 src/infra/errors.ts
 src/infra/exec-allowlist-pattern.ts
@@ -1071,6 +1075,7 @@ src/infra/sqlite-worker-request-class.ts
 src/infra/sqlite-worker-state-context.ts
 src/infra/sqlite-worker-store.ts
 src/infra/sqlite-worker-transfer.ts
+src/infra/stable-node-path.ts
 src/infra/stale-lock-file.ts
 src/infra/startup-maintenance-required.ts
 src/infra/startup-migration-checkpoint.ts
@@ -1088,6 +1093,7 @@ src/infra/tmp-openclaw-dir.ts
 src/infra/update-channels.ts
 src/infra/update-doctor-config-schema.ts
 src/infra/update-doctor-result.ts
+src/infra/update-failure-facts-format.ts
 src/infra/update-failure-facts.ts
 src/infra/update-failure-public-codes.ts
 src/infra/update-failure-public-identifiers.ts
@@ -1606,6 +1612,7 @@ src/state/openclaw-agent-context-engine-turn-outbox-schema.ts
 src/state/openclaw-agent-db-additive-columns.ts
 src/state/openclaw-agent-db-admission.ts
 src/state/openclaw-agent-db-contract.ts
+src/state/openclaw-agent-db-discovery-paths.ts
 src/state/openclaw-agent-db-disposal.ts
 src/state/openclaw-agent-db-existing-write.ts
 src/state/openclaw-agent-db-identity.ts
@@ -1640,6 +1647,7 @@ src/state/openclaw-agent-db.paths.ts
 src/state/openclaw-agent-db.ts
 src/state/openclaw-agent-db.wal.ts
 src/state/openclaw-agent-execution-cleanup.ts
+src/state/openclaw-agent-execution-config.ts
 src/state/openclaw-agent-execution-contract.ts
 src/state/openclaw-agent-execution-incognito.ts
 src/state/openclaw-agent-execution-native.ts
