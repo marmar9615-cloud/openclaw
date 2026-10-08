@@ -687,6 +687,8 @@ export const feishuOutbound: ChannelOutboundAdapter = withFeishuOutboundSendCont
         return { replyToMessageId, replyInThread };
       };
       const deliveryOptions = feishuOutboundDeliveryOptions(ctx);
+      const sendText = (value: string, replyMode = nextReplyMode()) =>
+        sendOutboundText({ ...sendParams, text: value, ...replyMode, ...deliveryOptions });
       if (parseFeishuCommentTarget(to)) {
         // Document comments deliver media as visible links; they never enter
         // the upload path or use its failure-propagation policy.
@@ -697,25 +699,11 @@ export const feishuOutbound: ChannelOutboundAdapter = withFeishuOutboundSendCont
               mediaLinkStyle: "plain",
             })
           : (text?.trim() ?? "");
-        return toFeishuOutboundResult(
-          await sendOutboundText({
-            ...sendParams,
-            text: commentText,
-            ...nextReplyMode(),
-            ...deliveryOptions,
-          }),
-        );
+        return toFeishuOutboundResult(await sendText(commentText));
       }
 
       if (!mediaUrl) {
-        return toFeishuOutboundResult(
-          await sendOutboundText({
-            ...sendParams,
-            text: text ?? "",
-            ...nextReplyMode(),
-            ...deliveryOptions,
-          }),
-        );
+        return toFeishuOutboundResult(await sendText(text ?? ""));
       }
 
       const suppressTextForVoiceMedia = shouldSuppressFeishuTextForVoiceMedia({
@@ -726,12 +714,7 @@ export const feishuOutbound: ChannelOutboundAdapter = withFeishuOutboundSendCont
 
       // Send text first if provided, except for Feishu native voice bubbles.
       if (text?.trim() && !suppressTextForVoiceMedia) {
-        captionResult = await sendOutboundText({
-          ...sendParams,
-          text,
-          ...nextReplyMode(),
-          ...deliveryOptions,
-        });
+        captionResult = await sendText(text);
       }
 
       const results: FeishuReplyDeliverySource[] = captionResult ? [captionResult] : [];
@@ -774,13 +757,11 @@ export const feishuOutbound: ChannelOutboundAdapter = withFeishuOutboundSendCont
           mediaUrl,
         });
         try {
-          const fallbackResult = await sendOutboundText({
-            ...sendParams,
-            text: fallbackText,
-            // A rejected upload never delivered its attempted reply target.
-            ...(captionResult ? nextReplyMode() : mediaReplyMode),
-            ...deliveryOptions,
-          });
+          // A rejected upload never delivered its attempted reply target.
+          const fallbackResult = await sendText(
+            fallbackText,
+            captionResult ? nextReplyMode() : mediaReplyMode,
+          );
           return toFeishuOutboundResult(
             aggregateFeishuSendResult(fallbackResult, [...results, fallbackResult]),
           );
@@ -794,14 +775,7 @@ export const feishuOutbound: ChannelOutboundAdapter = withFeishuOutboundSendCont
       try {
         await reportFeishuOutboundDelivery(mediaResult, onDeliveryResult);
         if (mediaResult.voiceIntentDegradedToFile && text?.trim()) {
-          results.push(
-            await sendOutboundText({
-              ...sendParams,
-              text,
-              ...nextReplyMode(),
-              ...deliveryOptions,
-            }),
-          );
+          results.push(await sendText(text));
         }
       } catch (error) {
         throw partialFeishuSendError(error, results);
