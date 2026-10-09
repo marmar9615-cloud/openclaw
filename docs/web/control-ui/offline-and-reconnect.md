@@ -9,6 +9,11 @@ sidebarTitle: "Offline and reconnect"
 
 What survives a dropped connection, and how the Control UI recovers when it returns.
 
+Returning to a suspended tab or regaining network connectivity can recover a
+stale connection. These signals do not retry a connection that requires a page
+reload, corrected credentials, or a new pairing request. Follow the displayed
+recovery instructions; automatic document refresh remains available after an update.
+
 Agent names and avatars keep their last loaded values when an identity refresh
 fails. Reads for the same agent share one request across the sidebar and chat,
 including failures: subsequent reads back off from 500 ms to 5 seconds and honor
@@ -98,6 +103,12 @@ cannot hold a UI update indefinitely. The existing warm-reload credential and
 account checks still decide whether cached conversations may appear. No
 Gateway-rendered private HTML, API responses, or authorization tickets are
 added to this shell cache.
+
+Reloads reuse cached build-versioned fonts, themes, and the web manifest without
+contacting the Gateway. The service worker retains the current build and at most
+two previous builds, so open tabs can still load their original assets. Uploaded
+profile avatars use private browser caching only when the URL matches the image's
+content revision; unversioned URLs and external avatar fallbacks still revalidate.
 
 Online navigations still go directly to the network so reverse-proxy HTTP
 authentication dialogs work normally. If the browser reports itself online
