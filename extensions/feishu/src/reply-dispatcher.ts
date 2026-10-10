@@ -430,6 +430,8 @@ export function createFeishuReplyDispatcher(params: CreateFeishuReplyDispatcherP
       generation: activeStreamingGeneration,
       startPromise: streamingStartPromise,
       text: combined,
+      tableMode,
+      textChunkLimit,
       accountId: account.accountId,
       runtime: params.runtime,
     });
@@ -720,6 +722,7 @@ export function createFeishuReplyDispatcher(params: CreateFeishuReplyDispatcherP
             {
               blockAnswerText: answerText,
               authoredText: authoredCloseText,
+              supplementalReasoningText: formatReasoningPrefix(finalizedReasoningText),
             },
           );
         }

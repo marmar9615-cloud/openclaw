@@ -803,39 +803,44 @@ describe("feishuOutbound.sendText receipt-less acceptance", () => {
   // by design, because an ordinary error would invite a duplicate retry. That text still
   // reached the reader, so the content this reports has to carry it. Reporting only the
   // chunks whose sender returned tells the turn a message it delivered was never sent.
-  it("reports a chunk Feishu accepted without a receipt as delivered content", async () => {
-    const sent: string[] = [];
-    sendMessageFeishuMock.mockImplementation(async ({ text }: { text: string }) => {
-      sent.push(text);
-      if (sent.length === 1) {
-        return { messageId: "chunk_1", chatId: "chat_1" };
+  it.each([1, 2])(
+    "reports accepted chunk %i without a receipt as delivered content",
+    async (receiptLessChunk) => {
+      const sent: string[] = [];
+      const authoredText = "x".repeat(9_000);
+      sendMessageFeishuMock.mockImplementation(async ({ text }: { text: string }) => {
+        sent.push(text);
+        if (sent.length < receiptLessChunk) {
+          return { messageId: "chunk_1", chatId: "chat_1" };
+        }
+        throw createChannelPartialDeliveryError(
+          new Error("Feishu send failed: no message_id returned"),
+          { messageIds: [], visibleReplySent: true },
+        );
+      });
+
+      let caught: unknown;
+      try {
+        await feishuOutbound.sendText?.({
+          cfg: emptyConfig,
+          to: "chat_1",
+          accountId: "main",
+          text: authoredText,
+        } as never);
+      } catch (err) {
+        caught = err;
       }
-      throw createChannelPartialDeliveryError(
-        new Error("Feishu send failed: no message_id returned"),
-        { messageIds: [], visibleReplySent: true },
-      );
-    });
 
-    let caught: unknown;
-    try {
-      await feishuOutbound.sendText?.({
-        cfg: emptyConfig,
-        to: "chat_1",
-        accountId: "main",
-        text: "x".repeat(5_000),
-      } as never);
-    } catch (err) {
-      caught = err;
-    }
-
-    expect(isChannelPartialDeliveryError(caught)).toBe(true);
-    const partial = caught as ReturnType<typeof createChannelPartialDeliveryError>;
-    // Guard the fixture: one chunk would not exercise the accounting at all.
-    expect(sent.length).toBe(2);
-    // Length first, so a regression reads as two numbers rather than two walls of x.
-    expect(partial.deliveryResult.content?.length).toBe(sent.join("").length);
-    expect(partial.deliveryResult.content).toBe(sent.join(""));
-  });
+      expect(isChannelPartialDeliveryError(caught)).toBe(true);
+      const partial = caught as ReturnType<typeof createChannelPartialDeliveryError>;
+      expect(sent.length).toBe(receiptLessChunk);
+      expect(partial.deliveryResult.messageIds).toEqual(receiptLessChunk === 1 ? [] : ["chunk_1"]);
+      // Length first, so a regression reads as two numbers rather than two walls of x.
+      expect(partial.deliveryResult.content?.length).toBe(sent.join("").length);
+      expect(partial.deliveryResult.content).toBe(sent.join(""));
+      expect(partial.deliveryResult.content?.length).toBeLessThan(authoredText.length);
+    },
+  );
 
   // The other direction is worse: a send that genuinely failed must not be reported as
   // delivered text, which is what the catch was added for in the first place.

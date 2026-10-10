@@ -236,7 +236,11 @@ export function createFeishuReplySenders(ctx: FeishuReplySenderContext) {
     text: string,
     infoKind?: string,
     firstChunkMentions?: MentionTarget[],
-    options?: { blockAnswerText?: string; authoredText?: string },
+    options?: {
+      blockAnswerText?: string;
+      authoredText?: string;
+      supplementalReasoningText?: string;
+    },
   ) => {
     const blockAnswerText = options?.blockAnswerText ?? text;
     // Block receipts are keyed by the rendered answer, never the reasoning preview
@@ -255,14 +259,37 @@ export function createFeishuReplySenders(ctx: FeishuReplySenderContext) {
         firstChunkMentions,
       });
     if (matchingBlock) {
-      return matchingBlock.catch((error: unknown) => {
-        // A partial failure still owns accepted chunks. Retrying the whole text
-        // would duplicate them, and the error does not identify a retryable suffix.
-        if (isChannelPartialDeliveryError(error)) {
-          throw error;
-        }
-        return send();
-      });
+      return matchingBlock.then(
+        async (acceptedBlock) => {
+          const supplementalReasoningText = options?.supplementalReasoningText;
+          if (!supplementalReasoningText?.trim()) {
+            return acceptedBlock;
+          }
+          // The block receipt covers only the answer. Closing removed the reasoning
+          // preview, so send its missing content without replaying the accepted answer.
+          try {
+            const reasoning = await sendChunkedTextReply({
+              text: supplementalReasoningText,
+              useCard: false,
+            });
+            return mergeFeishuReplyDeliveryResults([acceptedBlock, reasoning]);
+          } catch (error: unknown) {
+            const partial = isChannelPartialDeliveryError(error) ? error.deliveryResult : undefined;
+            throw createFeishuPartialReplyDeliveryError(
+              partial && error instanceof Error ? (error.cause ?? error) : error,
+              mergeFeishuReplyDeliveryResults([acceptedBlock, ...(partial ? [partial] : [])]),
+            );
+          }
+        },
+        (error: unknown) => {
+          // A partial failure still owns accepted chunks. Retrying the whole text
+          // would duplicate them, and the error does not identify a retryable suffix.
+          if (isChannelPartialDeliveryError(error)) {
+            throw error;
+          }
+          return send();
+        },
+      );
     }
     const delivery = send();
     if (infoKind === "block") {

@@ -45,7 +45,7 @@ export function partialFeishuSendError(
   results: readonly FeishuReplyDeliverySource[],
   acceptedContent?: string,
 ) {
-  if (results.length === 0 && error instanceof Error) {
+  if (results.length === 0 && acceptedContent === undefined && error instanceof Error) {
     return error;
   }
   const accepted = isChannelPartialDeliveryError(error) ? error.deliveryResult : undefined;
@@ -55,6 +55,6 @@ export function partialFeishuSendError(
       results: [...results, accepted],
       visibleReplySent: results.length > 0 || accepted !== undefined,
     }),
-    ...(acceptedContent ? { content: acceptedContent } : {}),
+    ...(acceptedContent !== undefined ? { content: acceptedContent } : {}),
   });
 }

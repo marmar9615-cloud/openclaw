@@ -16,6 +16,7 @@ type StreamingSessionStub = {
   credentials: unknown;
   start: ReturnType<typeof vi.fn>;
   update: ReturnType<typeof vi.fn>;
+  updated: ReturnType<typeof Promise.withResolvers<void>>;
   closeWithResult: Mock<FeishuStreamingSession["closeWithResult"]>;
   discardStarted: ReturnType<typeof Promise.withResolvers<void>>;
   discard: Mock<FeishuStreamingSession["discard"]>;
@@ -151,7 +152,10 @@ vi.mock("./streaming-card.js", async (importOriginal) => {
       start = vi.fn(async () => {
         this.active = true;
       });
-      update = vi.fn(async () => {});
+      updated = Promise.withResolvers<void>();
+      update = vi.fn(async () => {
+        this.updated.resolve();
+      });
       closeWithResult = vi.fn<FeishuStreamingSession["closeWithResult"]>(async (text, _options) => {
         this.active = false;
         return {
@@ -346,6 +350,43 @@ describe("createFeishuReplyDispatcher block table receipts", () => {
     return createDispatcherHarness({ accountId: "main", cfg, allowReasoningPreview });
   }
 
+  it.each(["answer", "reasoning"] as const)(
+    "shows off-mode %s tables literally without changing the eventual post",
+    async (stream) => {
+      const { result, options } = createBlockTableHarness(tableCfg("off"), true);
+      const text = [
+        tableMarkdown,
+        "City | Country\n:--- | ---:\nParis | France",
+        "> Animal | Sound\n> --- | ---\n> Cat | Meow",
+        "```\n| Sample |\n| --- |\n| Literal |\n```",
+      ].join("\n\n");
+      if (stream === "reasoning") {
+        result.replyOptions.onReasoningStream?.({ text });
+      } else {
+        result.replyOptions.onPartialReply?.({ text });
+      }
+      const instance = requireStreamingInstance(0);
+      await instance.updated.promise;
+      const shown = String(instance.update.mock.calls.at(-1)?.[0] ?? "");
+      expect(shown).toContain("| &#45;-- | --- |");
+      expect(shown).toContain(":&#45;-- | ---:");
+      expect(shown).toContain("> &#45;-- | ---");
+      expect(shown).toContain("| Sample |");
+      expect(shown).toContain("| --- |");
+      expect(shown).toContain("Ada | Lead");
+      expect(shown).toContain("Paris | France");
+      expect(shown).toContain("Cat | Meow");
+
+      await options.onIdle?.();
+      expect(instance.closeWithResult).not.toHaveBeenCalled();
+      expect(sendMessageFeishuMock).toHaveBeenCalledOnce();
+      const posted = String(sendMessageFeishuMock.mock.calls[0]?.[0]?.text ?? "");
+      expect(posted).not.toContain("&#45;");
+      expect(posted).toContain("| --- | --- |");
+      expect(posted).toContain("Ada | Lead");
+    },
+  );
+
   it.each([
     { waiter: "idle", phase: "with reasoning for idle", pending: false },
     { waiter: "idle", phase: "with reasoning for idle", pending: true },
@@ -356,12 +397,14 @@ describe("createFeishuReplyDispatcher block table receipts", () => {
     const { result, options } = createBlockTableHarness(tableCfg("off"), true);
     const postStarted = Promise.withResolvers<void>();
     let acceptPost!: (value: { messageId: string }) => void;
-    sendMessageFeishuMock.mockImplementationOnce(() => {
-      postStarted.resolve();
-      return new Promise((resolve) => {
-        acceptPost = resolve;
-      });
-    });
+    sendMessageFeishuMock
+      .mockImplementationOnce(() => {
+        postStarted.resolve();
+        return new Promise((resolve) => {
+          acceptPost = resolve;
+        });
+      })
+      .mockResolvedValue({ messageId: "om-reasoning" });
     result.replyOptions.onReasoningStream?.({ text: "Check the team roster." });
     result.replyOptions.onPartialReply?.({ text: tableMarkdown });
     expect(streamingInstances).toHaveLength(1);
@@ -387,16 +430,71 @@ describe("createFeishuReplyDispatcher block table receipts", () => {
       : await options.deliver({ text: tableMarkdown }, { kind: "final" });
     await options.onIdle?.();
 
-    expect(sendMessageFeishuMock).toHaveBeenCalledTimes(1);
-    expect(sendMessageFeishuMock.mock.calls[0]?.[0]?.text).toBe(tableMarkdown);
+    expect(sendMessageFeishuMock.mock.calls.map(([call]) => call.text)).toEqual(
+      waiter === "idle"
+        ? [tableMarkdown, "> 💭 **Thinking**  \n> Check the team roster."]
+        : [tableMarkdown],
+    );
     expect(acceptedFinal).toMatchObject({
-      messageIds: ["om-reasoned-answer"],
+      messageIds:
+        waiter === "idle" ? ["om-reasoned-answer", "om-reasoning"] : ["om-reasoned-answer"],
       visibleReplySent: true,
     });
-    expect(acceptedFinal?.receipt?.parts).toEqual(acceptedBlock?.receipt?.parts);
+    expect(acceptedFinal?.receipt?.parts[0]).toEqual(acceptedBlock?.receipt?.parts[0]);
     expect(requireStreamingInstance(0).closeWithResult).not.toHaveBeenCalled();
     expect(sendStructuredCardFeishuMock).not.toHaveBeenCalled();
   });
+
+  it.each([false, true])(
+    "retains the answer receipt when supplemental reasoning fails after an accepted prefix=%s",
+    async (acceptedPrefix) => {
+      const { chunkMarkdownTextWithMode } = await vi.importActual<
+        typeof import("openclaw/plugin-sdk/reply-chunking")
+      >("openclaw/plugin-sdk/reply-chunking");
+      getFeishuRuntimeMock().channel.text.chunkMarkdownTextWithMode.mockImplementation(
+        chunkMarkdownTextWithMode,
+      );
+      getFeishuRuntimeMock().channel.text.resolveTextChunkLimit.mockReturnValue(200);
+      const { result, options } = createBlockTableHarness(tableCfg("off"), true);
+      sendMessageFeishuMock.mockResolvedValueOnce({ messageId: "om-accepted-answer" });
+      if (acceptedPrefix) {
+        sendMessageFeishuMock.mockResolvedValueOnce({ messageId: "om-reasoning-prefix" });
+      }
+      sendMessageFeishuMock
+        .mockRejectedValueOnce(new Error("reasoning post rejected"))
+        .mockResolvedValue({ messageId: "om-unwanted-retry" });
+      result.replyOptions.onReasoningStream?.({ text: "Checking the team roster. ".repeat(30) });
+      result.replyOptions.onPartialReply?.({ text: tableMarkdown });
+      await options.deliver({ text: tableMarkdown }, { kind: "block" });
+
+      const idleError: unknown = await Promise.resolve(options.onIdle?.()).catch(
+        (error: unknown) => error,
+      );
+      expect(idleError).toBeInstanceOf(Error);
+      const finalError: unknown = await options
+        .deliver({ text: tableMarkdown }, { kind: "final" })
+        .catch((error: unknown) => error);
+      expect(isChannelPartialDeliveryError(finalError)).toBe(true);
+      if (!isChannelPartialDeliveryError(finalError)) {
+        throw new Error("expected rejected reasoning with the accepted answer receipt");
+      }
+      expect(finalError.deliveryResult).toMatchObject({
+        visibleReplySent: true,
+        messageIds: acceptedPrefix
+          ? ["om-accepted-answer", "om-reasoning-prefix"]
+          : ["om-accepted-answer"],
+        content: acceptedPrefix
+          ? `${tableMarkdown}\n\n${sendMessageFeishuMock.mock.calls[1]?.[0]?.text}`
+          : tableMarkdown,
+      });
+      expect(sendMessageFeishuMock).toHaveBeenCalledTimes(acceptedPrefix ? 3 : 2);
+      expect(
+        sendMessageFeishuMock.mock.calls.filter(([call]) => call.text.includes("| Ada | Lead |")),
+      ).toHaveLength(1);
+      await options.onIdle?.();
+      expect(sendMessageFeishuMock).toHaveBeenCalledTimes(acceptedPrefix ? 3 : 2);
+    },
+  );
 
   // With no accepted block to reuse, the close still delivers reasoning and answer.
   it("preserves reasoning when idle alone posts an off answer", async () => {

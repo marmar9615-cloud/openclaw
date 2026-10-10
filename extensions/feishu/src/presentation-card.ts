@@ -21,6 +21,7 @@ import {
   feishuCardWithinTableLimit,
   hasCardMarkdownTable,
   hasUndrawableCardTable,
+  literalizeFeishuCardTables,
   shouldUseCard,
   withinCardTableLimit,
 } from "./card-table-shapes.js";
@@ -76,19 +77,19 @@ const FEISHU_CARD_GREY_LENGTH = FEISHU_CARD_GREY_OPEN.length + FEISHU_CARD_GREY_
  * the limit can leave it. Split the projected form back, with the chunker that closes and
  * reopens a fence rather than cutting one in half, and give each piece its own element.
  */
-function escapedLength(text: string): number {
-  return escapeFeishuCardMarkdownText(text).length;
-}
-
 // The element carries the escaped text, and escaping turns one `&`, `<` or `>` into four
 // or five characters after the cut has already been made. Cutting the escaped text
 // instead would split an entity, so the budget comes down from the limit by whatever the
 // longest part actually measured, until the escaped parts fit.
-function fitBlockParts(text: string, ceiling: number): string[] {
+function fitBlockParts(
+  text: string,
+  ceiling: number,
+  encodeText: (text: string) => string,
+): string[] {
   let budget = ceiling;
   let parts = chunkFeishuMarkdown(text, budget);
   for (let attempt = 0; attempt < 8 && parts.length > 0; attempt += 1) {
-    const longest = Math.max(...parts.map(escapedLength));
+    const longest = Math.max(...parts.map((part) => encodeText(part).length));
     if (longest <= ceiling) {
       return parts;
     }
@@ -106,13 +107,14 @@ function projectBlockText(
   text: string,
   renderText: (text: string) => string,
   reserve = 0,
+  encodeText: (text: string) => string = escapeFeishuCardMarkdownText,
 ): string[] {
   const ceiling = FEISHU_CARD_TEXT_MAX_LENGTH - reserve;
   const rendered = renderText(text);
-  if (escapedLength(rendered) + reserve <= FEISHU_CARD_TEXT_MAX_LENGTH) {
+  if (encodeText(rendered).length + reserve <= FEISHU_CARD_TEXT_MAX_LENGTH) {
     return [rendered];
   }
-  const parts = fitBlockParts(rendered, ceiling);
+  const parts = fitBlockParts(rendered, ceiling, encodeText);
   // A quote prefix hides a fence marker from the chunker's scanner, so a quoted table
   // long enough to need several elements leaves its opening fence in one and its closing
   // fence in another, and neither draws a block. The send paths answer this the same way:
@@ -126,7 +128,7 @@ function projectBlockText(
   // path degrades an undrawable table to.
   if (rendered !== text && parts.length > 0 && !fencesSurvive(rendered, parts)) {
     const drawable = hasUndrawableCardTable(text) ? convertMarkdownTables(text, "bullets") : text;
-    const authored = fitBlockParts(drawable, ceiling);
+    const authored = fitBlockParts(drawable, ceiling, encodeText);
     if (authored.length > 0) {
       return authored;
     }
@@ -318,11 +320,12 @@ function buildFeishuPayloadButton(button: MessagePresentationButton): Record<str
 function buildFeishuCardElementsForBlock(
   block: MessagePresentationBlock,
   renderText: (text: string) => string,
+  encodeText: (text: string) => string,
 ): Record<string, unknown>[] {
   if (block.type === "text") {
-    return projectBlockText(block.text, renderText).map((part) => ({
+    return projectBlockText(block.text, renderText, 0, encodeText).map((part) => ({
       tag: "markdown",
-      content: escapeFeishuCardMarkdownText(part),
+      content: encodeText(part),
     }));
   }
   if (block.type === "context") {
@@ -333,15 +336,17 @@ function buildFeishuCardElementsForBlock(
     // The colour tag is added after the split, so its own characters come out of the
     // budget the parts are sized to. A part carrying a fence gives the tag up and could
     // have had them back, which costs a little room rather than an oversized element.
-    return projectBlockText(block.text, renderText, FEISHU_CARD_GREY_LENGTH).map((part) => {
-      const content = escapeFeishuCardMarkdownText(part);
-      return {
-        tag: "markdown",
-        content: /```[\s\S]*?```/.test(content)
-          ? content
-          : `${FEISHU_CARD_GREY_OPEN}${content}${FEISHU_CARD_GREY_CLOSE}`,
-      };
-    });
+    return projectBlockText(block.text, renderText, FEISHU_CARD_GREY_LENGTH, encodeText).map(
+      (part) => {
+        const content = encodeText(part);
+        return {
+          tag: "markdown",
+          content: /```[\s\S]*?```/.test(content)
+            ? content
+            : `${FEISHU_CARD_GREY_OPEN}${content}${FEISHU_CARD_GREY_CLOSE}`,
+        };
+      },
+    );
   }
   if (block.type === "divider") {
     return [{ tag: "hr" }];
@@ -353,26 +358,27 @@ function buildFeishuCardElementsForBlock(
     return [
       {
         tag: "markdown",
-        content: escapeFeishuCardMarkdownText(
-          renderText(renderMessagePresentationChartFallbackText(block)),
-        ),
+        content: encodeText(renderText(renderMessagePresentationChartFallbackText(block))),
       },
     ];
   }
   if (block.type === "table") {
     // A table block carries as many rows as the producer had, and its linear form is one
     // element unless it is cut, so it takes the same projection a text block does.
-    return projectBlockText(renderMessagePresentationTableFallbackText(block), renderText).map(
-      (part) => ({
-        tag: "markdown",
-        content: escapeFeishuCardMarkdownText(part),
-      }),
-    );
+    return projectBlockText(
+      renderMessagePresentationTableFallbackText(block),
+      renderText,
+      0,
+      encodeText,
+    ).map((part) => ({
+      tag: "markdown",
+      content: encodeText(part),
+    }));
   }
   return [
     {
       tag: "markdown",
-      content: escapeFeishuCardMarkdownText(
+      content: encodeText(
         renderText(renderMessagePresentationFallbackText({ presentation: { blocks: [block] } })),
       ),
     },
@@ -396,18 +402,23 @@ function buildFeishuPresentationCardElements(params: {
   presentation: NormalizedMessagePresentation;
   fallbackText?: string;
   renderText?: (text: string) => string;
+  tableMode?: MarkdownTableMode;
 }): Record<string, unknown>[] {
   const elements: Record<string, unknown>[] = [];
   const renderText = params.renderText ?? ((text: string) => text);
+  const encodeText =
+    params.tableMode === "off"
+      ? (text: string) => literalizeFeishuCardTables(text, escapeFeishuCardMarkdownText)
+      : escapeFeishuCardMarkdownText;
   const fallbackText = params.fallbackText?.trim();
   if (fallbackText) {
     // The fallback is projected like any block and outgrows the limit the same way.
-    for (const part of projectBlockText(fallbackText, renderText)) {
-      elements.push({ tag: "markdown", content: escapeFeishuCardMarkdownText(part) });
+    for (const part of projectBlockText(fallbackText, renderText, 0, encodeText)) {
+      elements.push({ tag: "markdown", content: encodeText(part) });
     }
   }
   for (const block of params.presentation.blocks) {
-    elements.push(...buildFeishuCardElementsForBlock(block, renderText));
+    elements.push(...buildFeishuCardElementsForBlock(block, renderText, encodeText));
   }
   if (elements.length > 0) {
     return elements;
@@ -423,7 +434,8 @@ function buildFeishuPresentationCardElements(params: {
  * carries is left alone, since a post draws what a card cannot.
  *
  * `off` is the exception: it asks for the authored pipes rather than for a card-safe shape,
- * and a list is a shape. Every other mode either converts the rows itself, which leaves this
+ * and a list is a shape. Off-mode card encoding escapes delimiter punctuation instead.
+ * Every other mode either converts the rows itself, which leaves this
  * nothing to replace, or draws them natively and only needs the shapes the card refuses. An
  * unstated mode is not `off`, so it keeps the substitution.
  */

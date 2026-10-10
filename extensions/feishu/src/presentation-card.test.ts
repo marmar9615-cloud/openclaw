@@ -141,11 +141,8 @@ describe("buildFeishuPresentationCard", () => {
     expect(elements.some((element) => element.tag === "button")).toBe(true);
   });
 
-  // The list above is a card-safe shape, and off asks for the authored pipes rather than for
-  // a shape. Its renderer converts nothing, so without the mode the card element would read
-  // the raw rows as undrawable and list them anyway.
-  it("keeps an authored quoted table on an off card", () => {
-    const quoted = "> | Name | Role |\n> | --- | --- |\n> | Ada | Lead |";
+  it.each(["\n", "\r\n", "\r"])("keeps a quoted off table literal with %j line endings", (eol) => {
+    const quoted = ["> | First-name | Role |", "> | --- | --- |", "> | Ada | Lead |"].join(eol);
     const presentation = normalizeMessagePresentation({ blocks: [{ type: "text", text: quoted }] });
     if (!presentation) {
       throw new Error("expected valid presentation");
@@ -158,7 +155,9 @@ describe("buildFeishuPresentationCard", () => {
     }).body.elements as { tag: string; content?: string }[];
 
     const markdown = elements.find((element) => element.tag === "markdown")?.content ?? "";
-    expect(markdown).toContain("| --- |");
+    expect(markdown).toBe(
+      ["&gt; | First-name | Role |", "&gt; | &#45;-- | --- |", "&gt; | Ada | Lead |"].join(eol),
+    );
     expect(markdown).not.toContain("•");
   });
 

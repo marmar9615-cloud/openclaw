@@ -808,15 +808,13 @@ describe("createFeishuReplyDispatcher table limits", () => {
     },
   );
 
-  // off disables table parsing rather than choosing a card-safe shape, so it has no
-  // converted form to put in a card. An explicit presentation stays a card whenever it
-  // fits the card limits, with or without controls, so the peer sees one card whose
-  // markdown element holds the authored pipes.
-  it("keeps the authored table on an off presentation card", async () => {
+  it("keeps off presentation tables literal while retaining controls and authored receipts", async () => {
     const delivery = await deliverPresentationTable("off");
 
     expect(sendCardFeishuMock).toHaveBeenCalledTimes(1);
-    expect(presentationCardMarkdown()[0]).toBe(tableMarkdown);
+    expect(presentationCardMarkdown()[0]).toBe(
+      "| Name | Role |\n| &#45;-- | --- |\n| Ada | Lead |",
+    );
     const serialized = JSON.stringify(presentationCardBodies()[0]);
     expect(serialized).toContain("Allow once");
     expect(serialized).toContain("Deny");
@@ -1131,10 +1129,7 @@ describe("createFeishuReplyDispatcher table limits", () => {
     expect(delivery?.content).not.toContain("```");
   });
 
-  // The reply path builds the same card, so the mode it resolves has to reach the element
-  // renderer there too. off converts nothing, so without it the raw rows read as undrawable
-  // and the card would list what the mode asked it to leave alone.
-  it("keeps an authored quoted table on an off presentation card", async () => {
+  it("keeps a quoted off presentation table literal", async () => {
     resolveFeishuAccountMock.mockReturnValue(createReplyAccount("auto", "off", "feishu"));
     const quoted = "> | Name | Role |\n> | --- | --- |\n> | Ada | Lead |";
     const { options } = createDispatcherHarness({ accountId: "main", cfg: tableCfg("off") });
@@ -1146,7 +1141,7 @@ describe("createFeishuReplyDispatcher table limits", () => {
 
     expect(sendCardFeishuMock).toHaveBeenCalledTimes(1);
     expect(presentationCardMarkdown()).toEqual([
-      "&gt; | Name | Role |\n&gt; | --- | --- |\n&gt; | Ada | Lead |",
+      "&gt; | Name | Role |\n&gt; | &#45;-- | --- |\n&gt; | Ada | Lead |",
     ]);
   });
 });

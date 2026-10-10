@@ -268,20 +268,16 @@ describe("feishuPlugin actions", () => {
       expect(markdown.join("\n")).not.toContain("| --- |");
     });
 
-    // off disables table parsing rather than choosing a card-safe shape, so the
-    // authored pipes stay on the card the action builds.
-    it("keeps the authored table on an off presentation card", async () => {
+    it("keeps an off presentation table literal instead of parsing it natively", async () => {
       const markdown = await cardMarkdownForPresentationTable({
         cfg: tableModeCfg("channel", "off"),
       });
 
-      expect(markdown).toEqual([tableMarkdown, `<font color='grey'>${tableMarkdown}</font>`]);
+      const literal = "| Name | Role |\n| &#45;-- | --- |\n| Ada | Lead |";
+      expect(markdown).toEqual([literal, `<font color='grey'>${literal}</font>`]);
     });
 
-    // A card draws neither a quoted table nor one a list marker opens, and every mode that
-    // converts replaces those rows with a shape it does draw. off converts nothing and asks
-    // for the pipes, so the card element has to leave them alone as well.
-    it("keeps an authored quoted table on an off presentation card", async () => {
+    it("keeps a quoted off presentation table literal", async () => {
       sendCardFeishuMock.mockResolvedValueOnce({ messageId: "om_card", chatId: "oc_group_1" });
       const quoted = "> | Name | Role |\n> | --- | --- |\n> | Ada | Lead |";
       await feishuPlugin.actions?.handleAction?.({
@@ -303,7 +299,9 @@ describe("feishuPlugin actions", () => {
       const markdown = requireArray(body.elements, "card elements").map((element) =>
         String(requireRecord(element, "card element").content),
       );
-      expect(markdown).toEqual(["&gt; | Name | Role |\n&gt; | --- | --- |\n&gt; | Ada | Lead |"]);
+      expect(markdown).toEqual([
+        "&gt; | Name | Role |\n&gt; | &#45;-- | --- |\n&gt; | Ada | Lead |",
+      ]);
     });
   });
 

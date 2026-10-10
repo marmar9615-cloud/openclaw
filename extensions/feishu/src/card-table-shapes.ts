@@ -14,6 +14,39 @@ const FEISHU_CARD_TABLE_LIMIT = 5;
 // `- Name` while none of them opens a list.
 const CARD_TABLE_LIST_OPENER = /^\s*(?:[-*+]|\d+[.)])\s/u;
 
+/** Keep off-mode tables literal on card-only surfaces without changing their visible rows. */
+export function literalizeFeishuCardTables(
+  text: string,
+  escapeText: (value: string) => string = (value) => value,
+): string {
+  if (!text.includes("|")) {
+    return escapeText(text);
+  }
+  const { tables } = markdownToIRWithMeta(text, { tableMode: "block" });
+  let cursor = 0;
+  let result = "";
+  for (const table of tables) {
+    const source = getMarkdownTableSource(table);
+    if (!source) {
+      continue;
+    }
+    const headerBreak = /\r\n|\r|\n/u.exec(text.slice(source.start, source.end));
+    if (!headerBreak) {
+      continue;
+    }
+    const start = source.start + headerBreak.index + headerBreak[0].length;
+    const nextLine = text.slice(start, source.end).search(/[\r\n]/u);
+    const end = nextLine < 0 ? source.end : start + nextLine;
+    // Feishu documents numeric entities for literal Markdown punctuation. Escaping one
+    // delimiter hyphen prevents table parsing; inject it after ordinary HTML escaping.
+    result +=
+      escapeText(text.slice(cursor, start)) +
+      escapeText(text.slice(start, end)).replace("-", "&#45;");
+    cursor = end;
+  }
+  return result + escapeText(text.slice(cursor));
+}
+
 /**
  * A card carries a table as one component, and the card chunker cuts on lines without
  * repeating the header and its delimiter, so every card after the first shows those rows
