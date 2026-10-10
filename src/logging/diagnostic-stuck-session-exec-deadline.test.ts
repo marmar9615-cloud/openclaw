@@ -11,11 +11,13 @@ import {
 import { testing as embeddedRunTesting } from "../agents/embedded-agent-runner/runs.test-support.js";
 import {
   resetDiagnosticEventsForTest,
+  onDiagnosticEvent,
   setDiagnosticsEnabledForProcess,
   waitForDiagnosticEventsDrained,
 } from "../infra/diagnostic-events.js";
 import { createProcessSupervisor } from "../process/supervisor/supervisor.js";
 import type { SpawnProcessAdapter } from "../process/supervisor/types.js";
+import { createTestGatewayScheduler } from "../test-utils/gateway-scheduler-clock.js";
 import {
   closeDiagnosticEmbeddedRunOwner,
   createDiagnosticEmbeddedRunOwner,
@@ -26,7 +28,7 @@ import type {
   StuckSessionRecoveryRequest,
 } from "./diagnostic-session-recovery.js";
 import { recoverStuckDiagnosticSession } from "./diagnostic-stuck-session-recovery.runtime.js";
-import { logSessionStateChange, startDiagnosticHeartbeat } from "./diagnostic.js";
+import { logSessionStateChange, startGatewayDiagnosticHeartbeat } from "./diagnostic.js";
 import { resetDiagnosticStateForTest } from "./diagnostic.test-support.js";
 
 const mocks = vi.hoisted(() => ({
@@ -37,7 +39,12 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("../process/supervisor/index.js", () => ({ getProcessSupervisor: mocks.getSupervisor }));
 vi.mock("../process/supervisor/adapters/child.js", () => ({
-  createChildAdapter: mocks.createChildAdapter,
+  createChildAdapter: async (
+    ...args: Parameters<typeof import("../process/supervisor/adapters/child.js").createChildAdapter>
+  ) => ({
+    adapter: await mocks.createChildAdapter(...args),
+    ready: Promise.resolve(),
+  }),
 }));
 vi.mock("../infra/shell-env.js", () => ({
   getShellPathFromLoginShell: () => null,
@@ -84,7 +91,8 @@ describe("heartbeat recovery after exec preparation", () => {
       const classified = createDeferred<StuckSessionRecoveryRequest>();
       const dispatch = createDeferred();
       const recovered = createDeferred<StuckSessionRecoveryOutcome>();
-      startDiagnosticHeartbeat(
+      startGatewayDiagnosticHeartbeat(
+        createTestGatewayScheduler("fake-timers"),
         { diagnostics: { enabled: true } },
         {
           sampleLiveness: () => null,
@@ -165,6 +173,21 @@ describe("heartbeat recovery after exec preparation", () => {
         }
         if (deadlineState === "expired") {
           vi.setSystemTime(deadline! + 1);
+        }
+        if (deadlineState === "future") {
+          const attention: string[] = [];
+          const unsubscribe = onDiagnosticEvent((event) => {
+            if (event.type === "session.stalled" || event.type === "session.long_running") {
+              attention.push(event.type);
+            }
+          });
+          try {
+            await vi.advanceTimersByTimeAsync(120_000);
+            await waitForDiagnosticEventsDrained();
+            expect(attention).toEqual(["session.long_running"]);
+          } finally {
+            unsubscribe();
+          }
         }
         dispatch.resolve();
         const outcome = await recovered.promise;

@@ -1,8 +1,8 @@
 import type { DatabaseSync } from "node:sqlite";
-import {
-  enableNodeSqliteKyselyStatementCache,
-  registerNodeSqliteDisposeCallback,
-} from "../infra/kysely-sync-cache-state.js";
+import { registerNodeSqliteDisposeCallback } from "../infra/kysely-sync-cache-state.js";
+import { SQLITE_IDLE_HANDLE_TTL_MS } from "../infra/sqlite-handle-lifecycle.js";
+import { runInSqliteMaintenanceContext } from "../infra/sqlite-wal.js";
+import { createSubsystemLogger } from "../logging/subsystem.js";
 import { resolveGlobalSingleton } from "../shared/global-singleton.js";
 import type {
   OpenClawAgentDatabase,
@@ -15,7 +15,8 @@ import {
 import {
   hasOpenClawAgentReadOnlySchema,
   openOpenClawAgentDatabaseReadOnly,
-  readOpenClawAgentDatabaseReadOnly,
+  readOpenClawAgentDatabase,
+  readOpenClawAgentDatabaseSnapshot,
   withFreshOpenClawAgentDatabaseReadOnly,
   type OpenClawAgentDatabaseReadOnlyResult,
   type OpenClawAgentReadOnlyDatabase,
@@ -26,8 +27,10 @@ type ReadOnlyCompanion = {
   reader: OpenClawAgentReadOnlyDatabaseHandle;
   active: boolean;
   close: () => void;
+  idleTimer: ReturnType<typeof setTimeout>;
 };
 
+const log = createSubsystemLogger("state/agent-db");
 const companions = resolveGlobalSingleton(
   Symbol.for("openclaw.agentDatabaseReadOnlyCompanions"),
   () => new WeakMap<DatabaseSync, ReadOnlyCompanion>(),
@@ -47,7 +50,7 @@ export function withCommittedOpenClawAgentDatabaseReadOnly<T>(
   writer: OpenClawAgentDatabase,
   operation: (database: OpenClawAgentReadOnlyDatabase) => T,
   options: OpenClawAgentDatabaseOptions,
-  behavior: { throwOnMissingTable?: boolean },
+  behavior: { snapshot?: boolean } = {},
 ): OpenClawAgentDatabaseReadOnlyResult<T> {
   let companion = companions.get(writer.db);
   // Nested operations keep their own statement/transaction window and cleanup.
@@ -70,42 +73,64 @@ export function withCommittedOpenClawAgentDatabaseReadOnly<T>(
       return opened;
     }
     const reader = opened.database;
-    // A pathname replacement during open keeps the old one-shot read contract.
-    if (!matchesWriter(reader, writer)) {
-      try {
-        return readOpenClawAgentDatabaseReadOnly(reader, operation, behavior);
-      } finally {
-        reader.close();
-      }
-    }
     let unregisterDispose = () => {};
+    let idleTimer: ReturnType<typeof setTimeout> | undefined;
     const close = () => {
       if (reader.db.isOpen) {
         reader.close();
       }
+      clearTimeout(idleTimer);
       if (companions.get(writer.db)?.reader === reader) {
         companions.delete(writer.db);
       }
       unregisterDispose();
     };
     try {
-      enableNodeSqliteKyselyStatementCache(reader.db);
+      // A pathname replacement during open keeps the old one-shot read contract.
+      if (!matchesWriter(reader, writer)) {
+        return behavior.snapshot
+          ? readOpenClawAgentDatabaseSnapshot(reader, operation)
+          : readOpenClawAgentDatabase(reader, operation);
+      }
       unregisterDispose = registerNodeSqliteDisposeCallback(writer.db, close);
-      companion = { reader, active: false, close };
-      companions.set(writer.db, companion);
-    } catch (error) {
-      close();
-      throw error;
+      idleTimer = runInSqliteMaintenanceContext(() =>
+        setTimeout(() => {
+          if (companions.get(writer.db)?.reader !== reader) {
+            return;
+          }
+          try {
+            close();
+          } catch (error) {
+            log.warn("Idle committed agent reader cleanup failed", { path: reader.path, error });
+            idleTimer?.refresh();
+          }
+        }, SQLITE_IDLE_HANDLE_TTL_MS),
+      );
+      idleTimer.unref();
+      const next = { reader, active: false, close, idleTimer };
+      companions.set(writer.db, next);
+      companion = next;
+    } finally {
+      if (!companion) {
+        close();
+      }
     }
   }
   const owned = companion;
   try {
-    if (!hasOpenClawAgentReadOnlySchema(owned.reader)) {
+    if (!behavior.snapshot && !hasOpenClawAgentReadOnlySchema(owned.reader)) {
       owned.close();
       return { found: false, reason: "schema-missing" };
     }
+    owned.idleTimer.refresh();
     owned.active = true;
-    return readOpenClawAgentDatabaseReadOnly(owned.reader, operation, behavior);
+    const result = behavior.snapshot
+      ? readOpenClawAgentDatabaseSnapshot(owned.reader, operation)
+      : readOpenClawAgentDatabase(owned.reader, operation);
+    if (!result.found) {
+      owned.close();
+    }
+    return result;
   } catch (error) {
     owned.close();
     throw error;
