@@ -31,7 +31,7 @@ ends with their count, such as **3 subagents running**, and counts down as they
 finish. Selecting the count opens the **Subagents** panel on its list. Child
 sessions that are not subagents are not part of that count.
 
-Under the working or waiting line, each unfinished subagent has its own row
+Under the reply, each unfinished subagent has its own row
 showing its name and current activity headline. Rows stay in launch order as
 activity changes and disappear when the subagent finishes. Until a current-run
 headline is available, the row shows **Running**, **Queued**, or **Waiting on
@@ -41,13 +41,11 @@ list it. The rows reuse the chat's loaded subagent list; they do not load each
 child's transcript.
 
 When a turn hands off with `sessions_yield` and its subagents are still active,
-the working indicator stays under that reply and reads **Waiting on 3
-subagents**, counting down as they finish. Selecting that count opens the
-**Subagents** panel on its list. When one is left the line shows that
-subagent's name, which opens it in the panel. Elapsed time counts from the
-handoff.
-If the turn ended without a handoff while subagents are still active, the same
-line follows the finished reply without elapsed time. Child sessions that are
+their live rows stay under that reply without a separate **Waiting on…** line
+or wait timer. The same applies when a turn ends without a handoff. Until the
+subagent list is available, **Waiting on subagents** remains as a fallback;
+its elapsed time counts from the handoff when known. The parent's own working
+indicator remains visible while the parent is actively working. Child sessions that are
 not subagents are counted without names once no subagent is left, as **Waiting
 on 2 sessions**. Once everything it waited on has finished, the line goes away
 until the agent resumes. Tool rows you opened stay open through the handoff. A
@@ -295,11 +293,18 @@ plain code without interactive controls.
 
 ## Chat behavior
 
-When you send a message, the model picker keeps your selected model visible without
-a loading indicator while the Gateway confirms the model handling the turn. Sending
-does not reload the cached model catalog. If a fallback takes over, the label updates
-to that model without changing your saved selection. A turn with no known selection
-still shows **Model pending**. Catalog loading and refresh feedback stays in the picker.
+The model picker displays your selected preference, even while a reply is sending,
+preparing, or streaming. You can change the model and reasoning effort without
+interrupting that reply. Successfully saved choices apply to ordinary queued
+messages that have not started; explicit per-message overrides keep their existing
+precedence. The current turn keeps its execution settings, and its recorded model
+(including any fallback) does not replace the picker label.
+
+During a model change, model and effort controls wait for the new model’s supported
+settings. Fast mode and context-window changes remain unavailable during an active
+reply. Read-only, disconnected, and unavailable-backend protections still apply.
+Sending does not reload the cached model catalog; catalog loading and refresh
+feedback stays in the picker.
 
 New Session shows the agent's known default model while the model catalog loads.
 Model choices are cached in memory for the current connection, agent, session,
