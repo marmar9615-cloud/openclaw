@@ -97,7 +97,7 @@ describe("WhatsApp delivery recovery", () => {
     setActivePluginRegistry(createEmptyPluginRegistry());
   });
 
-  it("packs long styles without tiny overflow messages and quotes only the first chunk", async () => {
+  it("preserves long styles and quotes only the first chunk", async () => {
     await withStateDirEnv("openclaw-whatsapp-styled-reply-", async () => {
       const sendMessage = vi.fn<ActiveWebListener["sendMessage"]>();
       sendMessage.mockImplementation(async () =>
@@ -118,8 +118,7 @@ describe("WhatsApp delivery recovery", () => {
         durability: "required",
       });
       expect(result.status).toBe("sent");
-      // Each 160-character message reserves two characters for WhatsApp's bold markers.
-      // Rendering overflow carries into the next message instead of forming a tiny part.
+      // Marker overhead carries into the next chunk instead of a tiny "*xx*" message.
       expect(sendMessage.mock.calls.map(([, text]) => text)).toEqual([
         `*${"x".repeat(158)}*`,
         `*${"x".repeat(158)}*`,
