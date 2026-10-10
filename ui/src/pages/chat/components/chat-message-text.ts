@@ -253,15 +253,21 @@ export function renderMessageMarkdown(
   const recoverFullMessage =
     isAssistant || (opts.role === "user" && disclosure?.onRetryFullMessage);
   const recovered = recoverFullMessage && disclosure?.expanded;
-  const { content: text, parts } = renderMarkdownText(
-    recovered ? (disclosure.markdown ?? markdown) : markdown,
-    messageKey,
-    opts.isStreaming,
-    recovered ? { ...markdownRenderOptions, mode: "document" } : markdownRenderOptions,
-    duplicateSuffix,
-    isAssistant && opts.isStreaming ? messageKey : undefined,
-    media,
-  );
+  const source = recovered ? (disclosure.markdown ?? markdown) : markdown;
+  const options: MarkdownRenderOptions = recovered
+    ? { ...markdownRenderOptions, mode: "document" }
+    : markdownRenderOptions;
+  const parts: [string, string] = opts.isStreaming
+    ? toStreamingMarkdownParts(source, options, isAssistant ? messageKey : undefined)
+    : [toSanitizedMarkdownHtml(source, options), ""];
+  if (duplicateSuffix) {
+    const terminalPart = parts[1].trim() ? 1 : 0;
+    parts[terminalPart] = appendDuplicateSuffix(parts[terminalPart], duplicateSuffix);
+  }
+  const content = markdownParts(messageKey, source, parts, media);
+  const text = html`
+    <div class="chat-text" dir="${detectTextDirection(media?.text ?? source)}">${content}</div>
+  `;
   // Exhausted recovery keeps the preview visible and offers manual re-entry.
   if (recoverFullMessage && disclosure?.onRetryFullMessage) {
     return html`
@@ -332,11 +338,14 @@ export type AssistantMessageDisclosure = {
   onRetryFullMessage?: () => void;
 };
 
+type MarkdownFragment = { html: string; incremental: boolean };
+
 class MarkdownPartsDirective extends AsyncDirective {
   private messageKey: string | undefined;
   private source = "";
   private stableHtml = "";
-  private fragments: string[] = [];
+  private fragments: MarkdownFragment[] = [];
+  private tail: MarkdownFragment | undefined;
   private generation = {};
   private mediaSlots = new Map<number, { element: HTMLElement; part?: RootPart }>();
   private mediaRender = {};
@@ -371,11 +380,31 @@ class MarkdownPartsDirective extends AsyncDirective {
       !stableHtml.startsWith(this.stableHtml)
     ) {
       this.fragments = [];
+      this.tail = undefined;
       this.stableHtml = "";
       this.generation = {};
     }
     if (stableHtml.length > this.stableHtml.length) {
-      this.fragments.push(stableHtml.slice(this.stableHtml.length));
+      const completed = stableHtml.slice(this.stableHtml.length);
+      if (this.tail) {
+        // Promotion keeps this fragment's Lit part and renderer. Switching to
+        // static HTML would discard its live controls and reader enhancements.
+        this.tail.html = completed;
+        this.tail = undefined;
+      } else {
+        this.fragments.push({ html: completed, incremental: false });
+      }
+    }
+    if (tailHtml) {
+      if (this.tail) {
+        this.tail.html = tailHtml;
+      } else {
+        this.tail = { html: tailHtml, incremental: true };
+        this.fragments.push(this.tail);
+      }
+    } else if (this.tail) {
+      this.fragments.pop();
+      this.tail = undefined;
     }
     this.messageKey = messageKey;
     this.source = source;
@@ -415,37 +444,16 @@ class MarkdownPartsDirective extends AsyncDirective {
     // control choices and Markdown enhancements, which must stay on its nodes.
     return keyed(
       this.generation,
-      html`${this.fragments.map((fragment) => renderMarkdownMedia(fragment, positionedMedia))}${renderMarkdownMedia(tailHtml, positionedMedia, true)}`,
+      html`${this.fragments.map((fragment) =>
+        guard([fragment.html, positionedMedia], () =>
+          renderMarkdownMedia(fragment.html, positionedMedia, fragment.incremental),
+        ),
+      )}`,
     );
   }
 }
 
 const markdownParts = directive(MarkdownPartsDirective);
-
-function renderMarkdownText(
-  markdown: string,
-  messageKey: string,
-  isStreaming: boolean,
-  markdownRenderOptions?: MarkdownRenderOptions,
-  duplicateSuffix?: DuplicateSuffix,
-  streamKey?: string,
-  media?: MarkdownMedia,
-) {
-  const parts: [string, string] = isStreaming
-    ? toStreamingMarkdownParts(markdown, markdownRenderOptions, streamKey)
-    : [toSanitizedMarkdownHtml(markdown, markdownRenderOptions), ""];
-  if (duplicateSuffix) {
-    const terminalPart = parts[1].trim() ? 1 : 0;
-    parts[terminalPart] = appendDuplicateSuffix(parts[terminalPart], duplicateSuffix);
-  }
-  const content = markdownParts(messageKey, markdown, parts, media);
-  return {
-    parts,
-    content: html`
-      <div class="chat-text" dir="${detectTextDirection(media?.text ?? markdown)}">${content}</div>
-    `,
-  };
-}
 
 function appendDuplicateSuffix(rendered: string, suffix: DuplicateSuffix): string {
   const template = document.createElement("template");
