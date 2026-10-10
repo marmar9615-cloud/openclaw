@@ -1,7 +1,6 @@
 // Channels capabilities tests cover capability reporting, account selection, probes, and installable plugins.
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ChannelPlugin } from "../../channels/plugins/types.public.js";
-import { ExpectedCliError } from "../../cli/failure-output.js";
 import type { OpenClawConfig, replaceConfigFile } from "../../config/config.js";
 import { DEFAULT_ACCOUNT_ID } from "../../routing/session-key.js";
 import { createTestConfigSnapshot } from "../test-runtime-config-helpers.js";
@@ -234,6 +233,14 @@ describe("channelsCapabilitiesCommand", () => {
       name: "blank channel",
       options: { channel: "" },
       message: "--channel must not be blank",
+      errorName: "Error",
+      discoversChannels: false,
+    },
+    {
+      name: "whitespace-only channel",
+      options: { channel: " \t " },
+      message: "--channel must not be blank",
+      errorName: "Error",
       discoversChannels: false,
     },
     {
@@ -276,11 +283,13 @@ describe("channelsCapabilitiesCommand", () => {
 
     const failure = channelsCapabilitiesCommand(testCase.options, runtime);
 
-    await expect(failure).rejects.toBeInstanceOf(ExpectedCliError);
+    const errorName = testCase.errorName ?? "ExpectedCliError";
     await expect(failure).rejects.toMatchObject({
+      name: errorName,
       message: testCase.message,
-      humanOutput: testCase.message,
-      machineOutput: testCase.message,
+      ...(errorName === "ExpectedCliError"
+        ? { humanOutput: testCase.message, machineOutput: testCase.message }
+        : {}),
     });
     expect(logs).toStrictEqual([]);
     expect(errors).toStrictEqual([]);
